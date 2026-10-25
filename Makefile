@@ -49,6 +49,10 @@ test: $(BIN) $(LIB)
 	@echo " RUNNING TARYAQ PYTHON ACCEPTANCE SUITE"
 	@echo "=================================================================="
 	python3 tests/test_taryaq_acceptance.py
+	@echo "=================================================================="
+	@echo " RUNNING TARYAQ GOMAA LONGITUDINAL PATIENT MEMORY SUITE"
+	@echo "=================================================================="
+	python3 tests/test_taryaq_gomaa.py
 	@echo "[SUCCESS] All Taryaq Agent verification suites passed deterministically!"
 
 clean:
