@@ -53,6 +53,6 @@ test: $(BIN) $(LIB)
 
 clean:
 	rm -rf $(BUILD_DIR)
-	rm -f taryaq_audit.jsonl *.audit.jsonl
+	rm -f taryaq_audit.jsonl qala-audit.jsonl *.audit.jsonl *.tokens.jsonl *.jsonl
 
 .PHONY: all test clean

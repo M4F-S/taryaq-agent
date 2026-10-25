@@ -59,6 +59,8 @@ static bool is_known_modeled_drug(const char *name) {
         "simvastatin", "سيمفاستاتين", "zocor",
         "warfarin", "وارفارين", "coumadin",
         "amiodarone", "أميودارون", "اميودارون", "cordarone",
+        "paracetamol", "باراسيتامول", "panadol", "acetaminophen",
+        "amoxicillin", "أموكسيسيلين", "اموكسيسيلين", "augmentin",
         "morphine", "مورفين",
         "tramadol", "ترامادول",
         "ketamine", "كيتامين",
@@ -125,6 +127,16 @@ taryaq_result_t taryaq_verify_prescription_and_claim(const taryaq_rx_context_t *
                            drug_matches(rx->primary_drug, rx->concurrent_drug, "اميودارون") ||
                            drug_matches(rx->primary_drug, rx->concurrent_drug, "cordarone");
 
+    bool has_paracetamol = drug_matches(rx->primary_drug, rx->concurrent_drug, "paracetamol") ||
+                           drug_matches(rx->primary_drug, rx->concurrent_drug, "باراسيتامول") ||
+                           drug_matches(rx->primary_drug, rx->concurrent_drug, "panadol") ||
+                           drug_matches(rx->primary_drug, rx->concurrent_drug, "acetaminophen");
+
+    bool has_amoxicillin = drug_matches(rx->primary_drug, rx->concurrent_drug, "amoxicillin") ||
+                           drug_matches(rx->primary_drug, rx->concurrent_drug, "أموكسيسيلين") ||
+                           drug_matches(rx->primary_drug, rx->concurrent_drug, "اموكسيسيلين") ||
+                           drug_matches(rx->primary_drug, rx->concurrent_drug, "augmentin");
+
     bool has_concurrent = (rx->concurrent_drug != NULL && rx->concurrent_drug[0] != '\0' &&
                            strcmp(rx->concurrent_drug, "none") != 0 && strcmp(rx->concurrent_drug, "-") != 0);
 
@@ -190,7 +202,8 @@ taryaq_result_t taryaq_verify_prescription_and_claim(const taryaq_rx_context_t *
                 (has_colchicine && has_clarithro) ||
                 (has_simvastatin && has_clarithro) ||
                 (has_warfarin && has_amiodarone) ||
-                (has_metformin && has_simvastatin); /* Common verified safe diabetic/statin combo */
+                (has_metformin && has_simvastatin) ||
+                (has_paracetamol && has_amoxicillin); /* Verified safe analgesic + antibiotic co-prescription */
 
             if (!is_explicitly_modeled_pair) {
                 res.verdict = CLINICAL_UNVERIFIED_REVIEW;
@@ -663,9 +676,9 @@ int main(void) {
     assert(r11.verdict == CLINICAL_CONTRAINDICATION_BLOCK);
     assert(strcmp(r11.alert_code, "WARFARIN_AMIODARONE_HEMORRHAGE_RISK") == 0);
 
-    /* Test 12: Fail-Closed Gate - Unmodeled drug (Paracetamol with valid eGFR) -> UNVERIFIED_DRUG_REQUIRES_PHARMACIST_REVIEW */
+    /* Test 12: Fail-Closed Gate - Unmodeled drug (Ibuprofen with valid eGFR) -> UNVERIFIED_DRUG_REQUIRES_PHARMACIST_REVIEW */
     taryaq_rx_context_t unmodeled_drug = {
-        .primary_drug = "Paracetamol 500mg",
+        .primary_drug = "Ibuprofen 400mg",
         .concurrent_drug = NULL,
         .patient_egfr_ml_min = 95.0,
         .is_controlled_substance = false,

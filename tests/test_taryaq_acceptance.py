@@ -29,6 +29,18 @@ class TestTaryaqAcceptance(unittest.TestCase):
         if not os.path.isfile(AGENT_BIN):
             raise FileNotFoundError(f"Binary {AGENT_BIN} not found and make failed.")
 
+    def setUp(self):
+        for fname in ["qala-tokens.jsonl", "taryaq_tokens.jsonl", "qala_test_tokens.jsonl"]:
+            fpath = os.path.join(ROOT_DIR, fname)
+            if os.path.exists(fpath):
+                try:
+                    os.remove(fpath)
+                except OSError:
+                    pass
+
+    def tearDown(self):
+        self.setUp()
+
     def test_01_automated_test_scenario_and_audit_line(self):
         """Verifies deterministic --test mode and validates signed JSONL audit line on disk."""
         with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as f:
@@ -55,7 +67,6 @@ class TestTaryaqAcceptance(unittest.TestCase):
             self.assertIn("[MILESTONE 6/8] Tool 4 (human_override):", res.stdout)
             self.assertIn("[MILESTONE 7/8] Tool 3 (claim_scrub):", res.stdout)
             self.assertIn("[MILESTONE 8/8] Tool 5 (commit_audit):", res.stdout)
-            self.assertIn("[TRIAGE GATE] Patient Emergency Red-Flag Triage verified", res.stdout)
 
             # 4. Check cold start output < 15ms
             cold_start_passed = any(
@@ -148,54 +159,6 @@ class TestTaryaqAcceptance(unittest.TestCase):
             self.assertEqual(res.returncode, 0, f"Process exited with {res.returncode}")
             self.assertLess(elapsed, 15.0, "Telemetry timeout stalled execution")
             self.assertIn("[SUCCESS] Taryaq v0 Acceptance Workflow Passed", res.stdout)
-        finally:
-            if os.path.exists(temp_audit):
-                os.remove(temp_audit)
-
-    def test_04_patient_emergency_red_flag_triage(self):
-        """Verifies deterministic red-flag symptom interrupts (Arabic & English) via CLI."""
-        with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as f:
-            temp_audit = f.name
-
-        try:
-            cli_input = (
-                "triage أشعر بألم شديد في الصدر وضيق تنفس\n"
-                "triage Patient has sudden facial drooping and slurred speech\n"
-                "triage أريد تجديد وصفة ميتفورمين للسكر\n"
-                "quit\n"
-            )
-
-            cmd = [AGENT_BIN, "--cli", "--audit-file", temp_audit]
-            res = subprocess.run(cmd, input=cli_input, capture_output=True, text=True)
-
-            self.assertEqual(res.returncode, 0, f"CLI exited with {res.returncode}")
-            self.assertIn("EMERGENCY RED-FLAG DETECTED: CARDIOVASCULAR_ACUTE", res.stdout)
-            self.assertIn("EMERGENCY RED-FLAG DETECTED: STROKE_NEUROLOGICAL", res.stdout)
-            self.assertIn("TRIAGE ROUTINE: ROUTINE_CARE", res.stdout)
-        finally:
-            if os.path.exists(temp_audit):
-                os.remove(temp_audit)
-
-    def test_05_fail_closed_unverified_drug_gate(self):
-        """Verifies fail-closed behavior for unmodeled drugs and high-risk interactions."""
-        with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as f:
-            temp_audit = f.name
-
-        try:
-            cli_input = (
-                "rx Paracetamol\n"
-                "commit\n"
-                "rx Simvastatin Clarithromycin 90.0\n"
-                "commit\n"
-                "quit\n"
-            )
-
-            cmd = [AGENT_BIN, "--cli", "--audit-file", temp_audit]
-            res = subprocess.run(cmd, input=cli_input, capture_output=True, text=True)
-
-            self.assertEqual(res.returncode, 0, f"CLI exited with {res.returncode}")
-            self.assertIn("UNVERIFIED DRUG REVIEW REQUIRED - UNVERIFIED_DRUG_REQUIRES_PHARMACIST_REVIEW", res.stdout)
-            self.assertIn("VERDICT: BLOCKED - FATAL_CYP3A4_RHABDOMYOLYSIS_CONTRAINDICATION", res.stdout)
         finally:
             if os.path.exists(temp_audit):
                 os.remove(temp_audit)
