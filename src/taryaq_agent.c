@@ -337,6 +337,16 @@ static const taryaq_med_entry_t MED_DATABASE[] = {
         .clinical_notes = "Narrow therapeutic window; international normalized ratio monitoring required"
     },
     {
+        .canonical_name = "Amiodarone",
+        .arabic_name = "أميودارون",
+        .drug_class = "Class III Antiarrhythmic",
+        .renal_egfr_cutoff = 15.0,
+        .cyp3a4_profile = CYP3A4_INHIBITOR,
+        .is_controlled = false,
+        .icd10_indication = "I49.9",
+        .clinical_notes = "Inhibits CYP2C9 and CYP3A4; interacts with Warfarin causing fatal hemorrhage risk"
+    },
+    {
         .canonical_name = NULL,
         .arabic_name = NULL,
         .drug_class = NULL,
@@ -466,7 +476,41 @@ static taryaq_check_result_t taryaq_interaction_check(
 }
 
 /* ========================================================================= */
-/* 7. Tool 3: claim_scrub                                                    */
+/* 7. Session State Model                                                    */
+/* ========================================================================= */
+
+typedef enum {
+    SESSION_EMPTY       = 0,
+    SESSION_DRAFT       = 1,
+    SESSION_SAFE        = 2,
+    SESSION_BLOCKED     = 3,
+    SESSION_OVERRIDDEN  = 4,
+    SESSION_COMMITTED   = 5,
+    SESSION_ROLLED_BACK = 6
+} taryaq_session_state_t;
+
+typedef struct {
+    taryaq_session_state_t state;
+    char     primary_drug[64];
+    char     concurrent_drug[64];
+    double   patient_egfr;
+    bool     is_controlled;
+    bool     has_id_verified;
+    char     alert_code[64];
+    char     clinical_rationale[256];
+    bool     override_approved;
+    char     override_token[64];
+    char     override_rationale[256];
+    double   net_claim_aed;
+    uint32_t delay_days;
+    double   penalty_aed;
+    uint64_t created_utc;
+} taryaq_working_session_t;
+
+static taryaq_working_session_t g_session;
+
+/* ========================================================================= */
+/* 8. Tool 3: claim_scrub                                                    */
 /* ========================================================================= */
 
 typedef struct {
@@ -482,6 +526,10 @@ typedef struct {
 } taryaq_claim_scrub_result_t;
 
 static taryaq_claim_scrub_result_t taryaq_claim_scrub(
+    const char *primary_drug,
+    const char *concurrent_drug,
+    double      patient_egfr,
+    bool        has_override,
     double      net_claim_aed,
     uint32_t    delay_days,
     const char *icd10_code,
@@ -508,8 +556,15 @@ static taryaq_claim_scrub_result_t taryaq_claim_scrub(
 
     taryaq_rx_context_t rx;
     memset(&rx, 0, sizeof(rx));
-    rx.primary_drug = "Metformin";
-    rx.patient_egfr_ml_min = 90.0;
+    rx.primary_drug = (primary_drug && primary_drug[0] != '\0') ? primary_drug :
+                      (g_session.primary_drug[0] != '\0' ? g_session.primary_drug : "Metformin");
+    rx.concurrent_drug = (concurrent_drug && concurrent_drug[0] != '\0') ? concurrent_drug :
+                         (g_session.concurrent_drug[0] != '\0' ? g_session.concurrent_drug : NULL);
+    rx.patient_egfr_ml_min = (patient_egfr > 0.0) ? patient_egfr :
+                             (g_session.patient_egfr > 0.0 ? g_session.patient_egfr : 90.0);
+    rx.has_clinician_override = has_override;
+    rx.is_controlled_substance = g_session.is_controlled;
+    rx.has_controlled_id_verified = g_session.has_id_verified;
     rx.icd10_code = icd10_code ? icd10_code : "E11.9";
     rx.submission_delay_days = delay_days;
     rx.has_ejadah_lab_justification = true;
@@ -591,38 +646,8 @@ static taryaq_override_result_t taryaq_human_override(
 }
 
 /* ========================================================================= */
-/* 9. Tool 5: commit_audit & Rollback Engine                                 */
+/* 10. Tool 5: commit_audit & Rollback Engine                                */
 /* ========================================================================= */
-
-typedef enum {
-    SESSION_EMPTY       = 0,
-    SESSION_DRAFT       = 1,
-    SESSION_SAFE        = 2,
-    SESSION_BLOCKED     = 3,
-    SESSION_OVERRIDDEN  = 4,
-    SESSION_COMMITTED   = 5,
-    SESSION_ROLLED_BACK = 6
-} taryaq_session_state_t;
-
-typedef struct {
-    taryaq_session_state_t state;
-    char     primary_drug[64];
-    char     concurrent_drug[64];
-    double   patient_egfr;
-    bool     is_controlled;
-    bool     has_id_verified;
-    char     alert_code[64];
-    char     clinical_rationale[256];
-    bool     override_approved;
-    char     override_token[64];
-    char     override_rationale[256];
-    double   net_claim_aed;
-    uint32_t delay_days;
-    double   penalty_aed;
-    uint64_t created_utc;
-} taryaq_working_session_t;
-
-static taryaq_working_session_t g_session;
 
 static void taryaq_rollback_state(const char *reason, const char *audit_path, bool enable_telemetry) {
     uint64_t now_utc = taryaq_now_utc();
@@ -873,13 +898,17 @@ static int run_test_scenario(const char *audit_path, bool enable_telemetry) {
         taryaq_emit_telemetry(true, "gate_verdict", tele);
     }
 
-    /* Milestone 7: Tool 3 - claim_scrub (DHA SN 03/2019 Claim Cycle & Late Penalty) */
-    taryaq_claim_scrub_result_t scrub_ok = taryaq_claim_scrub(450.00, 0, "M10.0", "Patient prescription claim");
+    /* Milestone 7: Tool 3 - claim_scrub (DHA SN 03/2019 Claim Cycle & Late Penalty with Dynamic Context) */
+    taryaq_claim_scrub_result_t scrub_ok = taryaq_claim_scrub(
+        g_session.primary_drug, g_session.concurrent_drug, g_session.patient_egfr,
+        g_session.override_approved, 450.00, 0, "M10.0", "Patient prescription claim");
     if (scrub_ok.verdict != CLINICAL_SAFE || scrub_ok.penalty_aed != 0.0) {
         fprintf(stderr, "[-] Fatal: Normal claim failed scrub!\n");
         return 1;
     }
-    taryaq_claim_scrub_result_t scrub_late = taryaq_claim_scrub(450.00, 12, "M10.0", "Delayed claim submission");
+    taryaq_claim_scrub_result_t scrub_late = taryaq_claim_scrub(
+        g_session.primary_drug, g_session.concurrent_drug, g_session.patient_egfr,
+        g_session.override_approved, 450.00, 12, "M10.0", "Delayed claim submission");
     if (scrub_late.verdict != CLINICAL_CLAIM_CYCLE_WARN || scrub_late.penalty_aed < 1.61 || scrub_late.penalty_aed > 1.63) {
         fprintf(stderr, "[-] Fatal: DHA SN 03/2019 12-day penalty incorrect (expected 1.62 AED, got %.2f AED)!\n",
                 scrub_late.penalty_aed);
@@ -930,8 +959,27 @@ static int run_test_scenario(const char *audit_path, bool enable_telemetry) {
         return 1;
     }
 
-    double t_total = taryaq_get_monotonic_ms() - t_start;
     printf("[MILESTONE 8/8] Tool 5 (commit_audit): Signed JSONL on disk & single-use replay blocked -> PASS\n");
+
+    /* Patient Care Companion: Emergency Red-Flag Triage Verification */
+    taryaq_triage_result_t tr_ar = taryaq_triage_patient_symptoms("أشعر بألم في الصدر وضيق تنفس");
+    if (!tr_ar.is_red_flag || tr_ar.level != TRIAGE_EMERGENCY || strcmp(tr_ar.triage_category, "CARDIOVASCULAR_ACUTE") != 0) {
+        fprintf(stderr, "[-] Fatal: Patient Arabic red-flag triage failed to trigger emergency interrupt!\n");
+        return 1;
+    }
+    taryaq_triage_result_t tr_en = taryaq_triage_patient_symptoms("Patient has sudden facial drooping and slurred speech");
+    if (!tr_en.is_red_flag || tr_en.level != TRIAGE_EMERGENCY || strcmp(tr_en.triage_category, "STROKE_NEUROLOGICAL") != 0) {
+        fprintf(stderr, "[-] Fatal: Patient English stroke red-flag triage failed!\n");
+        return 1;
+    }
+    taryaq_triage_result_t tr_safe = taryaq_triage_patient_symptoms("Routine refill inquiry for Metformin 500mg");
+    if (tr_safe.is_red_flag || tr_safe.level != TRIAGE_ROUTINE) {
+        fprintf(stderr, "[-] Fatal: Routine inquiry falsely triggered red flag!\n");
+        return 1;
+    }
+    printf("[TRIAGE GATE] Patient Emergency Red-Flag Triage verified (Arabic/English interrupts & routine) -> PASS\n");
+
+    double t_total = taryaq_get_monotonic_ms() - t_start;
 
     printf("================================================================================\n");
     printf(" [SUCCESS] Taryaq v0 Acceptance Workflow Passed in %.3f ms (< 180,000 ms)\n", t_total);
@@ -954,6 +1002,7 @@ static void print_cli_help(void) {
     printf("   check                               - Run contraindication & interaction engine\n");
     printf("   claim <net_aed> <delay_days> [note] - Run DHA SN 03/2019 claim cycle scrubber\n");
     printf("   override <token> <rationale...>     - Apply single-use cryptographic override\n");
+    printf("   triage <patient_symptoms...>        - Emergency red-flag triage (Arabic / English)\n");
     printf("   commit                              - Sign and write append-only audit line\n");
     printf("   rollback                            - Discard uncommitted prescription state\n");
     printf("   status                              - Display current session status\n");
@@ -1096,6 +1145,11 @@ static void run_cli_loop(const char *audit_path, bool enable_telemetry) {
                 g_session.state = SESSION_BLOCKED;
                 printf("[!] VERDICT: CONTROLLED MEDICATION GATE - %s\n", chk.alert_code);
                 printf("    %s\n", chk.clinical_rationale);
+            } else if (chk.verdict == CLINICAL_UNVERIFIED_REVIEW) {
+                g_session.state = SESSION_BLOCKED;
+                printf("[!] VERDICT: UNVERIFIED DRUG REVIEW REQUIRED - %s\n", chk.alert_code);
+                printf("    %s\n", chk.clinical_rationale);
+                printf("    To override, run: override <token> <clinical_rationale>\n");
             } else {
                 g_session.state = SESSION_SAFE;
                 printf("[+] VERDICT: SAFE - %s\n", chk.alert_code);
@@ -1121,7 +1175,9 @@ static void run_cli_loop(const char *audit_path, bool enable_telemetry) {
                 printf("Usage: claim <net_claim_aed> <delay_days> [claim_narrative]\n");
                 continue;
             }
-            taryaq_claim_scrub_result_t sc = taryaq_claim_scrub(aed, delay, "M10.0", narrative);
+            taryaq_claim_scrub_result_t sc = taryaq_claim_scrub(
+                g_session.primary_drug, g_session.concurrent_drug, g_session.patient_egfr,
+                g_session.override_approved, aed, delay, "M10.0", narrative);
             g_session.net_claim_aed = sc.net_claim_aed;
             g_session.delay_days = sc.delay_days;
             g_session.penalty_aed = sc.penalty_aed;
@@ -1158,6 +1214,22 @@ static void run_cli_loop(const char *audit_path, bool enable_telemetry) {
                 printf("    Ready to commit. Run: commit\n");
             } else {
                 printf("[-] OVERRIDE REJECTED: %s\n", ov.err_message);
+            }
+        } else if (strcmp(cmd, "triage") == 0 || strcmp(cmd, "فرز") == 0) {
+            if (parsed < 2 || rest[0] == '\0') {
+                printf("Usage: triage <patient_reported_symptoms_in_arabic_or_english>\n");
+                continue;
+            }
+            taryaq_triage_result_t tr = taryaq_triage_patient_symptoms(rest);
+            if (tr.is_red_flag) {
+                printf("[!] EMERGENCY RED-FLAG DETECTED: %s\n", tr.triage_category);
+                printf("    Trigger Word: %s\n", tr.matched_trigger);
+                printf("    Protocol:     %s\n", tr.action_protocol);
+                printf("    Guidance:     %s\n", tr.clinical_guidance);
+            } else {
+                printf("[+] TRIAGE ROUTINE: %s\n", tr.triage_category);
+                printf("    Protocol:     %s\n", tr.action_protocol);
+                printf("    Guidance:     %s\n", tr.clinical_guidance);
             }
         } else if (strcmp(cmd, "commit") == 0) {
             if (g_session.state == SESSION_BLOCKED && !g_session.override_approved) {

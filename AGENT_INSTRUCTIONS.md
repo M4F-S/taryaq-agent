@@ -44,10 +44,10 @@ Taryaq is a generalist medical AI agent specialized for three core healthcare st
 
 ### 4. IMMEDIATE ENGINEERING ROADMAP
 When continuing development in this session, focus on these concrete coding tasks:
-- [ ] **Task 1: Fail-Closed Clinical Gate:** In `adapters/taryaq_clinical_adapter.c`, expand the rule matrix to include high-risk pairs (Simvastatin + Clarithromycin, Warfarin + Amiodarone). If either drug is unrecognized or unmodeled, return `UNVERIFIED_DRUG_REQUIRES_PHARMACIST_REVIEW` instead of `CLINICAL_SAFE`.
-- [ ] **Task 2: Dynamic Patient Context in Claim Scrubber:** In `src/taryaq_agent.c`, pass the actual prescription medication and patient eGFR into `claim_scrub` rather than static placeholders.
-- [ ] **Task 3: Red-Flag Emergency Triage Module:** Add deterministic C99 triage checking in `adapters/taryaq_clinical_adapter.c` for patient-reported red-flag symptoms.
-- [ ] **Task 4: Build & Test Verification:** Run `make clean && make test` and ensure all suites pass with zero warnings.
+- [x] **Task 1: Fail-Closed Clinical Gate:** In `adapters/taryaq_clinical_adapter.c`, expand the rule matrix to include high-risk pairs (Simvastatin + Clarithromycin, Warfarin + Amiodarone). If either drug is unrecognized or unmodeled, return `UNVERIFIED_DRUG_REQUIRES_PHARMACIST_REVIEW` instead of `CLINICAL_SAFE`.
+- [x] **Task 2: Dynamic Patient Context in Claim Scrubber:** In `src/taryaq_agent.c`, pass the actual prescription medication and patient eGFR into `claim_scrub` rather than static placeholders.
+- [x] **Task 3: Red-Flag Emergency Triage Module:** Add deterministic C99 triage checking in `adapters/taryaq_clinical_adapter.c` for patient-reported red-flag symptoms.
+- [x] **Task 4: Build & Test Verification:** Run `make clean && make test` and ensure all suites pass with zero warnings.
 
 ---
 
