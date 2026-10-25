@@ -11,7 +11,8 @@
 2. **Clear & Simple Language:** Always discuss problems and plans in **clear, simple, everyday English**. Never overwhelm the operator with dense academic jargon or robotic multiple-choice questions. If a decision is needed, explain the practical real-world trade-off simply.
 3. **Research-First Protocol:** **NEVER guess, assume, or invent medical rules, drug interactions, or system architectures.** Always ask Mohamed for his clinical research and reference literature before making architectural or clinical decisions. Rely strictly on the research provided (e.g. `docs/research/HEALTHCARE_AI_AGENTS_DIRECTORY_2026.md`).
 4. **Engineering First (Strictly No Hype):** Focus 100% on **building, refactoring, and testing the software**. Do NOT talk about pitch decks, demo videos, or peripheral hardware specs until the agent code is 100% complete, hardened, and verified with passing tests.
-5. **Tri-Mirror Synchronization:** The local folder, Google Drive mirror, and GitHub repo **must remain 100% identical mirrors at all times**. Whenever code or documentation is created or modified, run `./sync_mirror.sh` to update both Google Drive and GitHub immediately.
+5. **Do Not Reinvent the Wheel — Start Where Others Reached:** Never build from scratch what already exists. Leverage established libraries (`cJSON`, `libcurl`) and in-house battle-tested assets like **Gomaa (`https://github.com/M4F-S/gomaa`)** for episodic patient memory and adherence tracking.
+6. **Tri-Mirror Synchronization:** The local folder, Google Drive mirror, and GitHub repo **must remain 100% identical mirrors at all times**. Whenever code or documentation is created or modified, run `./sync_mirror.sh` to update both Google Drive and GitHub immediately.
 
 ---
 
@@ -19,8 +20,8 @@
 - **Primary Foundation Engine:** **`Belya` (`M4F-S/Belya`)**
   - Taryaq's core clinical decision engine is built on **Belya's deterministic C99 architecture**.
   - *Why:* Clinical pharmacovigilance and DHA SN 03/2019 claims scrubbing demand microsecond determinism (< 0.02 ms), zero dynamic heap allocation, and zero-hallucination hard safety gates.
-- **Secondary Integration:** **`Almaz` (`M4F-S/Almaz`)**
-  - Taryaq's patient adherence and chronic symptom tracking interface leverages **Almaz's longitudinal memory principles** to follow patient recovery over weeks without context window saturation.
+- **Secondary Integration:** **`Almaz` (`M4F-S/Almaz`) + `Gomaa` (`M4F-S/gomaa`)**
+  - Taryaq's patient adherence and chronic symptom tracking interface leverages **Almaz's longitudinal memory principles** and **Gomaa's episodic turn ledger** to follow patient recovery and polypharmacy trajectories over weeks without context window saturation.
 
 ---
 
