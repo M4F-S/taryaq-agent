@@ -26,6 +26,11 @@ The core engine is built in ISO C99 with zero external network dependencies:
   Calculates statutory delay penalties on Dubai `eClaimLink` (0.03% of net claim per day, §§3.7.1, 3.7.2, 3.8.1, 3.8.4, 3.9.3) before submission.
 - **Emergency Red-Flag Patient Triage:**
   Air-gapped triage gate classifying emergency symptoms (Arabic and English: chest pain, dyspnea, acute neurological deficits) for immediate human transfer.
+- **Longitudinal Patient Timeline & Polypharmacy Trajectory (`src/taryaq_agent.c`):**
+  Zero-dependency longitudinal encounter tracking (`taryaq_encounters.jsonl`) recording patient IDs, consultation dates, prescribed drugs, doses, eGFR values, clinical verdicts, and override tokens:
+  - Chronological eGFR progression and CKD staging with ASCII trajectory visualization (`timeline <patient_id>`).
+  - History-aware repeat override escalation (`is_repeat_override` flag) that flags recurrent overrides for identical drug-drug interactions.
+  - Interactive demonstration with 6 realistic clinical encounters (`make timeline-demo`).
 - **HMAC-SHA256 Cryptographic Audit Chaining (`src/taryaq_agent.c`, `tools/verify_audit.py`):**
   Every audit record is cryptographically linked to the previous record's MAC:
   $$\text{MAC}_i = \text{HMAC-SHA256}(K, \text{MAC}_{i-1} \parallel \text{"\\n"} \parallel \text{canonical}_i)$$
@@ -54,7 +59,6 @@ The following high-level interfaces represent the production roadmap and are not
    - Trace-linked SOAP note generation ("agent drafts, clinician signs" non-SaMD workflow).
    - Real-time pre-order CDS hooks in EHR workflows.
 2. **Pharmacist Interface (Community & Hospital Pharmacies — Roadmap):**
-   - Longitudinal polypharmacy trajectory tracking to eliminate alert fatigue.
    - Automated batch submission to Dubai `eClaimLink` post office.
    - Multi-clinician override governance dashboard.
 3. **Patient Interface (Companion & Intake — Roadmap):**
@@ -74,6 +78,9 @@ make test
 
 # Verify cryptographic HMAC audit chain
 make audit-verify
+
+# Run realistic 6-encounter longitudinal timeline demo with CKD progression
+make timeline-demo
 
 # Run complete acceptance and audit verification
 make verify

@@ -32,7 +32,7 @@ class TestTaryaqAcceptance(unittest.TestCase):
             raise FileNotFoundError(f"Binary {AGENT_BIN} not found and make failed.")
 
     def setUp(self):
-        for fname in ["qala-tokens.jsonl", "taryaq_tokens.jsonl", "qala_test_tokens.jsonl"]:
+        for fname in ["qala-tokens.jsonl", "taryaq_tokens.jsonl", "qala_test_tokens.jsonl", "taryaq_encounters.jsonl"]:
             fpath = os.path.join(ROOT_DIR, fname)
             if os.path.exists(fpath):
                 try:

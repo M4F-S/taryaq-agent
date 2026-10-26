@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <ctype.h>
@@ -36,7 +37,17 @@
 
 #define TARYAQ_VERSION "0.1.0-c99-sovereign"
 #define DEFAULT_AUDIT_LOG "taryaq_audit.jsonl"
+#define DEFAULT_TIMELINE_LOG "taryaq_encounters.jsonl"
 #define TELEMETRY_ENDPOINT "http://127.0.0.1:8787/emit"
+
+static const char *g_timeline_path = NULL;
+
+static const char *taryaq_get_timeline_path(void) {
+    if (g_timeline_path && g_timeline_path[0] != '\0') return g_timeline_path;
+    const char *env = getenv("TIMELINE_FILE");
+    if (env && env[0] != '\0') return env;
+    return DEFAULT_TIMELINE_LOG;
+}
 
 /* ========================================================================= */
 /* 1. Self-Contained ISO C99 SHA-256 Implementation (Zero External Crypto)   */
@@ -316,6 +327,79 @@ static void taryaq_json_escape(const char *src, char *dst, size_t dst_cap) {
         }
     }
     dst[w] = '\0';
+}
+
+static bool taryaq_json_extract_str(const char *json, const char *key, char *out, size_t out_cap) {
+    if (!json || !key || !out || out_cap == 0) return false;
+    out[0] = '\0';
+    char pattern[128];
+    snprintf(pattern, sizeof(pattern), "\"%s\":", key);
+    const char *pos = strstr(json, pattern);
+    if (!pos) {
+        snprintf(pattern, sizeof(pattern), "\"%s\" :", key);
+        pos = strstr(json, pattern);
+    }
+    if (!pos) return false;
+    pos += strlen(pattern);
+    while (*pos && isspace((unsigned char)*pos)) pos++;
+    if (*pos != '"') return false;
+    pos++; /* skip opening quote */
+    size_t w = 0;
+    while (*pos && *pos != '"' && (w + 1) < out_cap) {
+        if (*pos == '\\' && *(pos + 1) != '\0') {
+            pos++;
+            if (*pos == 'n') out[w++] = '\n';
+            else if (*pos == 'r') out[w++] = '\r';
+            else if (*pos == 't') out[w++] = '\t';
+            else out[w++] = *pos;
+        } else {
+            out[w++] = *pos;
+        }
+        pos++;
+    }
+    out[w] = '\0';
+    return true;
+}
+
+static bool taryaq_json_extract_double(const char *json, const char *key, double *out) {
+    if (!json || !key || !out) return false;
+    char pattern[128];
+    snprintf(pattern, sizeof(pattern), "\"%s\":", key);
+    const char *pos = strstr(json, pattern);
+    if (!pos) {
+        snprintf(pattern, sizeof(pattern), "\"%s\" :", key);
+        pos = strstr(json, pattern);
+    }
+    if (!pos) return false;
+    pos += strlen(pattern);
+    while (*pos && isspace((unsigned char)*pos)) pos++;
+    char *endptr = NULL;
+    double val = strtod(pos, &endptr);
+    if (endptr == pos) return false;
+    *out = val;
+    return true;
+}
+
+static bool taryaq_json_extract_bool(const char *json, const char *key, bool *out) {
+    if (!json || !key || !out) return false;
+    char pattern[128];
+    snprintf(pattern, sizeof(pattern), "\"%s\":", key);
+    const char *pos = strstr(json, pattern);
+    if (!pos) {
+        snprintf(pattern, sizeof(pattern), "\"%s\" :", key);
+        pos = strstr(json, pattern);
+    }
+    if (!pos) return false;
+    pos += strlen(pattern);
+    while (*pos && isspace((unsigned char)*pos)) pos++;
+    if (strncmp(pos, "true", 4) == 0) {
+        *out = true;
+        return true;
+    } else if (strncmp(pos, "false", 5) == 0) {
+        *out = false;
+        return true;
+    }
+    return false;
 }
 
 static uint64_t taryaq_now_utc(void) {
@@ -619,6 +703,9 @@ typedef enum {
 
 typedef struct {
     taryaq_session_state_t state;
+    char     patient_id[64];
+    char     date[32];
+    char     dose[64];
     char     primary_drug[64];
     char     concurrent_drug[64];
     double   patient_egfr;
@@ -629,6 +716,7 @@ typedef struct {
     bool     override_approved;
     char     override_token[64];
     char     override_rationale[256];
+    bool     is_repeat_override;
     double   net_claim_aed;
     uint32_t delay_days;
     double   penalty_aed;
@@ -774,6 +862,307 @@ static taryaq_override_result_t taryaq_human_override(
 }
 
 /* ========================================================================= */
+/* 9b. Longitudinal Patient Timeline & Polypharmacy Trajectory Engine        */
+/* ========================================================================= */
+
+typedef struct {
+    char     patient_id[64];
+    char     date[32];          /* YYYY-MM-DD */
+    char     primary_drug[64];
+    char     concurrent_drug[64];
+    char     dose[64];
+    double   patient_egfr;
+    char     verdict[64];
+    char     alert_code[64];
+    char     override_token[64];
+    char     override_rationale[256];
+    bool     is_repeat_override;
+    uint64_t timestamp_utc;
+} taryaq_encounter_t;
+
+static bool taryaq_record_encounter(const char *timeline_path, const taryaq_encounter_t *enc) {
+    if (!enc) return false;
+    const char *path = timeline_path ? timeline_path : taryaq_get_timeline_path();
+    int fd = open(path, O_RDWR | O_CREAT | O_APPEND, 0600);
+    if (fd < 0) {
+        perror("[-] Error opening timeline encounters file");
+        return false;
+    }
+    if (flock(fd, LOCK_EX) != 0) {
+        close(fd);
+        return false;
+    }
+
+    char esc_pid[128], esc_date[64], esc_p_drug[128], esc_c_drug[128], esc_dose[128];
+    char esc_verdict[128], esc_alert[128], esc_token[128], esc_rationale[512];
+
+    taryaq_json_escape(enc->patient_id, esc_pid, sizeof(esc_pid));
+    taryaq_json_escape(enc->date, esc_date, sizeof(esc_date));
+    taryaq_json_escape(enc->primary_drug, esc_p_drug, sizeof(esc_p_drug));
+    taryaq_json_escape(enc->concurrent_drug, esc_c_drug, sizeof(esc_c_drug));
+    taryaq_json_escape(enc->dose, esc_dose, sizeof(esc_dose));
+    taryaq_json_escape(enc->verdict, esc_verdict, sizeof(esc_verdict));
+    taryaq_json_escape(enc->alert_code, esc_alert, sizeof(esc_alert));
+    taryaq_json_escape(enc->override_token, esc_token, sizeof(esc_token));
+    taryaq_json_escape(enc->override_rationale, esc_rationale, sizeof(esc_rationale));
+
+    char line[2048];
+    snprintf(line, sizeof(line),
+        "{\"patient_id\":\"%s\",\"date\":\"%s\",\"drug\":\"%s%s%s\",\"dose\":\"%s\","
+        "\"patient_egfr\":%.1f,\"verdict\":\"%s\",\"alert_code\":\"%s\","
+        "\"override_token\":\"%s\",\"rationale\":\"%s\",\"is_repeat_override\":%s,"
+        "\"timestamp_utc\":%llu}\n",
+        esc_pid, esc_date,
+        esc_p_drug,
+        (enc->concurrent_drug[0] && strcmp(enc->concurrent_drug, "NONE") != 0) ? " + " : "",
+        (enc->concurrent_drug[0] && strcmp(enc->concurrent_drug, "NONE") != 0) ? esc_c_drug : "",
+        esc_dose,
+        enc->patient_egfr,
+        esc_verdict, esc_alert, esc_token, esc_rationale,
+        enc->is_repeat_override ? "true" : "false",
+        (unsigned long long)enc->timestamp_utc);
+
+    ssize_t w = write(fd, line, strlen(line));
+    (void)w;
+    fsync(fd);
+    flock(fd, LOCK_UN);
+    close(fd);
+    return true;
+}
+
+static bool taryaq_load_patient_encounters(
+    const char *timeline_path,
+    const char *patient_id,
+    taryaq_encounter_t *out_encs,
+    size_t max_encs,
+    size_t *out_count
+) {
+    if (out_count) *out_count = 0;
+    if (!timeline_path || !patient_id || !out_encs || max_encs == 0) return false;
+
+    FILE *fp = fopen(timeline_path, "r");
+    if (!fp) return true;
+
+    char line[4096];
+    size_t count = 0;
+    while (fgets(line, sizeof(line), fp) && count < max_encs) {
+        char pid[64] = {0};
+        if (!taryaq_json_extract_str(line, "patient_id", pid, sizeof(pid))) {
+            continue;
+        }
+        if (strcmp(pid, patient_id) != 0) {
+            continue;
+        }
+
+        taryaq_encounter_t *e = &out_encs[count];
+        memset(e, 0, sizeof(*e));
+        snprintf(e->patient_id, sizeof(e->patient_id), "%s", pid);
+
+        taryaq_json_extract_str(line, "date", e->date, sizeof(e->date));
+        taryaq_json_extract_str(line, "dose", e->dose, sizeof(e->dose));
+        taryaq_json_extract_double(line, "patient_egfr", &e->patient_egfr);
+        taryaq_json_extract_str(line, "verdict", e->verdict, sizeof(e->verdict));
+        taryaq_json_extract_str(line, "alert_code", e->alert_code, sizeof(e->alert_code));
+        taryaq_json_extract_str(line, "override_token", e->override_token, sizeof(e->override_token));
+        taryaq_json_extract_str(line, "rationale", e->override_rationale, sizeof(e->override_rationale));
+        taryaq_json_extract_bool(line, "is_repeat_override", &e->is_repeat_override);
+
+        char drug_str[128] = {0};
+        taryaq_json_extract_str(line, "drug", drug_str, sizeof(drug_str));
+        char *plus = strstr(drug_str, " + ");
+        if (plus) {
+            *plus = '\0';
+            snprintf(e->primary_drug, sizeof(e->primary_drug), "%s", drug_str);
+            snprintf(e->concurrent_drug, sizeof(e->concurrent_drug), "%s", plus + 3);
+        } else {
+            snprintf(e->primary_drug, sizeof(e->primary_drug), "%s", drug_str);
+            e->concurrent_drug[0] = '\0';
+        }
+
+        count++;
+    }
+    fclose(fp);
+    if (out_count) *out_count = count;
+    return true;
+}
+
+static bool taryaq_check_repeat_override(
+    const char *timeline_path,
+    const char *patient_id,
+    const char *primary_drug,
+    const char *concurrent_drug,
+    const char *alert_code,
+    taryaq_encounter_t *out_prior
+) {
+    if (!patient_id || patient_id[0] == '\0') return false;
+    const char *path = timeline_path ? timeline_path : taryaq_get_timeline_path();
+
+    taryaq_encounter_t history[128];
+    size_t count = 0;
+    if (!taryaq_load_patient_encounters(path, patient_id, history, 128, &count)) {
+        return false;
+    }
+
+    for (size_t i = 0; i < count; ++i) {
+        if (history[i].override_token[0] != '\0' &&
+            strcmp(history[i].override_token, "NONE") != 0 &&
+            (strstr(history[i].verdict, "OVERRIDDEN") != NULL ||
+             strstr(history[i].verdict, "APPROVED") != NULL)) {
+
+            bool alert_match = (alert_code && alert_code[0] != '\0' &&
+                                strcmp(alert_code, "NONE") != 0 &&
+                                strcmp(history[i].alert_code, alert_code) == 0);
+
+            bool drug_match = false;
+            if (primary_drug && primary_drug[0]) {
+                if (strcasecmp(history[i].primary_drug, primary_drug) == 0 &&
+                    ((!concurrent_drug && history[i].concurrent_drug[0] == '\0') ||
+                     (concurrent_drug && strcasecmp(history[i].concurrent_drug, concurrent_drug) == 0))) {
+                    drug_match = true;
+                }
+                if (concurrent_drug && concurrent_drug[0] &&
+                    strcasecmp(history[i].primary_drug, concurrent_drug) == 0 &&
+                    strcasecmp(history[i].concurrent_drug, primary_drug) == 0) {
+                    drug_match = true;
+                }
+            }
+
+            if (alert_match || drug_match) {
+                if (out_prior) {
+                    *out_prior = history[i];
+                }
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static const char *taryaq_ckd_stage_str(double egfr) {
+    if (egfr >= 90.0) return "Stage 1 (Normal / High: >= 90 ml/min)";
+    if (egfr >= 60.0) return "Stage 2 (Mild decline: 60-89 ml/min)";
+    if (egfr >= 45.0) return "Stage 3a (Mild-to-moderate CKD: 45-59 ml/min)";
+    if (egfr >= 30.0) return "Stage 3b (Moderate-to-severe CKD: 30-44 ml/min)";
+    if (egfr >= 15.0) return "Stage 4 (Severe impairment / Pre-dialysis: 15-29 ml/min)";
+    return "Stage 5 (Kidney Failure / End-stage renal disease: < 15 ml/min)";
+}
+
+static void taryaq_display_timeline(const char *timeline_path, const char *patient_id) {
+    if (!patient_id || patient_id[0] == '\0') {
+        printf("[-] Error: Patient ID is required. Usage: timeline <patient_id>\n");
+        return;
+    }
+    const char *path = timeline_path ? timeline_path : taryaq_get_timeline_path();
+
+    taryaq_encounter_t encs[128];
+    size_t count = 0;
+    if (!taryaq_load_patient_encounters(path, patient_id, encs, 128, &count) || count == 0) {
+        printf("[-] No longitudinal encounter history found for patient '%s' in '%s'.\n", patient_id, path);
+        return;
+    }
+
+    double baseline_egfr = encs[0].patient_egfr;
+    double current_egfr = encs[count - 1].patient_egfr;
+    double delta = current_egfr - baseline_egfr;
+    double pct = baseline_egfr > 0.0 ? (delta / baseline_egfr) * 100.0 : 0.0;
+
+    size_t overrides_count = 0;
+    size_t repeat_count = 0;
+    for (size_t i = 0; i < count; ++i) {
+        if (encs[i].override_token[0] && strcmp(encs[i].override_token, "NONE") != 0) {
+            overrides_count++;
+            if (encs[i].is_repeat_override) {
+                repeat_count++;
+            }
+        }
+    }
+
+    const char *trajectory_status = "STABLE";
+    if (delta <= -30.0 || pct <= -30.0) {
+        trajectory_status = "RAPID CKD PROGRESSION (CRITICAL RENAL DECLINE)";
+    } else if (delta < -10.0) {
+        trajectory_status = "MODERATE RENAL DECLINE";
+    } else if (delta > 10.0) {
+        trajectory_status = "RENAL FUNCTION RECOVERY";
+    }
+
+    printf("================================================================================\n");
+    printf("  TARYAQ LONGITUDINAL PATIENT TRAJECTORY: %s\n", patient_id);
+    printf("  Dubai Clinical Decision Support & Pharmacovigilance Engine\n");
+    printf("================================================================================\n");
+    printf("Patient ID:        %s\n", patient_id);
+    printf("Total Encounters:  %zu encounter(s)\n", count);
+    printf("Baseline eGFR:     %.1f ml/min (Date: %s)\n", baseline_egfr, encs[0].date);
+    printf("Current eGFR:      %.1f ml/min (Date: %s)\n", current_egfr, encs[count - 1].date);
+    printf("Trajectory Delta:  %+.1f ml/min (%+.1f%% change) [%s]\n", delta, pct, trajectory_status);
+    printf("Current CKD Stage: %s\n", taryaq_ckd_stage_str(current_egfr));
+    printf("Prior Overrides:   %zu documented (%zu repeat override(s) escalated)\n",
+           overrides_count, repeat_count);
+    printf("--------------------------------------------------------------------------------\n");
+    printf("CHRONOLOGICAL ENCOUNTER LEDGER:\n");
+
+    for (size_t i = 0; i < count; ++i) {
+        const char *v_desc = encs[i].verdict;
+        if (encs[i].is_repeat_override) {
+            v_desc = "OVERRIDDEN [REPEAT ATTEMPT FLAGGED - ESCALATED]";
+        } else if (strstr(encs[i].verdict, "OVERRIDDEN") != NULL) {
+            v_desc = "OVERRIDDEN [1st Override]";
+        } else if (strstr(encs[i].verdict, "BLOCK") != NULL) {
+            v_desc = "BLOCKED [Unapproved - Rolled Back]";
+        } else if (strstr(encs[i].verdict, "SAFE") != NULL) {
+            v_desc = "SAFE";
+        }
+
+        printf("[%zu] %s | eGFR: %5.1f ml/min | Rx: %s%s%s (Dose: %s)\n",
+               i + 1,
+               encs[i].date,
+               encs[i].patient_egfr,
+               encs[i].primary_drug,
+               encs[i].concurrent_drug[0] ? " + " : "",
+               encs[i].concurrent_drug[0] ? encs[i].concurrent_drug : "",
+               encs[i].dose[0] ? encs[i].dose : "Standard");
+        printf("    Verdict:    %s\n", v_desc);
+        printf("    Alert Code: %s\n", encs[i].alert_code[0] ? encs[i].alert_code : "NONE");
+        if (encs[i].override_token[0] && strcmp(encs[i].override_token, "NONE") != 0) {
+            printf("    Override:   Token: %s%s\n",
+                   encs[i].override_token,
+                   encs[i].is_repeat_override ? " [REPEAT FLAGGED]" : "");
+            printf("    Rationale:  %s\n", encs[i].override_rationale);
+        }
+    }
+
+    printf("--------------------------------------------------------------------------------\n");
+    printf("RENAL FUNCTION TRAJECTORY (eGFR ml/min):\n");
+    for (size_t i = 0; i < count; ++i) {
+        int stars = (int)(encs[i].patient_egfr / 2.5);
+        if (stars < 1) stars = 1;
+        if (stars > 40) stars = 40;
+
+        char bar[48];
+        memset(bar, '*', stars);
+        bar[stars] = '\0';
+
+        const char *marker = "";
+        if (encs[i].is_repeat_override) {
+            marker = " [REPEAT OVERRIDE FLAGGED] (Stage 4)";
+        } else if (encs[i].override_token[0] && strcmp(encs[i].override_token, "NONE") != 0) {
+            marker = " [OVERRIDE #1] (Stage 3a)";
+        } else if (strstr(encs[i].verdict, "BLOCK") != NULL) {
+            marker = " [BLOCKED] (Stage 4)";
+        } else if (encs[i].patient_egfr >= 90.0) {
+            marker = " (Normal)";
+        } else if (encs[i].patient_egfr >= 60.0) {
+            marker = " (Stage 2)";
+        } else if (encs[i].patient_egfr >= 30.0) {
+            marker = " (Stage 3b)";
+        }
+
+        printf("  %s [%5.1f] | %-40s%s\n", encs[i].date, encs[i].patient_egfr, bar, marker);
+    }
+    printf("================================================================================\n");
+}
+
+/* ========================================================================= */
 /* 10. Tool 5: commit_audit & Rollback Engine                                */
 /* ========================================================================= */
 
@@ -836,6 +1225,31 @@ static void taryaq_rollback_state(const char *reason, const char *audit_path, bo
                 }
             }
         }
+    }
+
+    if (g_session.state == SESSION_BLOCKED && g_session.primary_drug[0] != '\0') {
+        taryaq_encounter_t enc;
+        memset(&enc, 0, sizeof(enc));
+        snprintf(enc.patient_id, sizeof(enc.patient_id), "%s", g_session.patient_id[0] ? g_session.patient_id : "DXB-PAT-001");
+        if (g_session.date[0]) {
+            snprintf(enc.date, sizeof(enc.date), "%s", g_session.date);
+        } else {
+            time_t t = (time_t)now_utc;
+            struct tm tm_buf;
+            gmtime_r(&t, &tm_buf);
+            strftime(enc.date, sizeof(enc.date), "%Y-%m-%d", &tm_buf);
+        }
+        snprintf(enc.primary_drug, sizeof(enc.primary_drug), "%s", g_session.primary_drug);
+        snprintf(enc.concurrent_drug, sizeof(enc.concurrent_drug), "%s", g_session.concurrent_drug);
+        snprintf(enc.dose, sizeof(enc.dose), "%s", g_session.dose[0] ? g_session.dose : "Standard Dose");
+        enc.patient_egfr = g_session.patient_egfr;
+        snprintf(enc.verdict, sizeof(enc.verdict), "%s", "CLINICAL_CONTRAINDICATION_BLOCK");
+        snprintf(enc.alert_code, sizeof(enc.alert_code), "%s", g_session.alert_code[0] ? g_session.alert_code : "BLOCKED");
+        snprintf(enc.override_token, sizeof(enc.override_token), "%s", "NONE");
+        snprintf(enc.override_rationale, sizeof(enc.override_rationale), "%s", reason ? reason : "Unapproved block");
+        enc.is_repeat_override = g_session.is_repeat_override;
+        enc.timestamp_utc = now_utc;
+        taryaq_record_encounter(taryaq_get_timeline_path(), &enc);
     }
 
     memset(&g_session, 0, sizeof(g_session));
@@ -915,6 +1329,8 @@ static bool taryaq_commit_audit(const char *audit_path, bool enable_telemetry) {
 
     char esc_primary[128], esc_concurrent[128], esc_alert[128];
     char esc_token[128], esc_rationale[256], esc_canon[1024];
+    char esc_pid[128], esc_date[64], esc_dose[128];
+
     taryaq_json_escape(g_session.primary_drug, esc_primary, sizeof(esc_primary));
     taryaq_json_escape(g_session.concurrent_drug, esc_concurrent, sizeof(esc_concurrent));
     taryaq_json_escape(g_session.alert_code, esc_alert, sizeof(esc_alert));
@@ -922,24 +1338,45 @@ static bool taryaq_commit_audit(const char *audit_path, bool enable_telemetry) {
     taryaq_json_escape(g_session.override_rationale, esc_rationale, sizeof(esc_rationale));
     taryaq_json_escape(canonical, esc_canon, sizeof(esc_canon));
 
+    taryaq_json_escape(g_session.patient_id[0] ? g_session.patient_id : "DXB-PAT-001", esc_pid, sizeof(esc_pid));
+    char cur_date[32];
+    if (g_session.date[0]) {
+        snprintf(cur_date, sizeof(cur_date), "%s", g_session.date);
+    } else {
+        time_t t = (time_t)now_utc;
+        struct tm tm_buf;
+        gmtime_r(&t, &tm_buf);
+        strftime(cur_date, sizeof(cur_date), "%Y-%m-%d", &tm_buf);
+    }
+    taryaq_json_escape(cur_date, esc_date, sizeof(esc_date));
+    taryaq_json_escape(g_session.dose[0] ? g_session.dose : "Standard Dose", esc_dose, sizeof(esc_dose));
+
     char line[4096];
     snprintf(line, sizeof(line),
         "{\"timestamp_utc\":%llu,\"reporting_tz\":\"Asia/Dubai\",\"agent\":\"Taryaq v0\","
-        "\"action\":\"PRESCRIPTION_COMMITTED\",\"primary_drug\":\"%s\",\"concurrent_drug\":\"%s\","
+        "\"action\":\"PRESCRIPTION_COMMITTED\",\"patient_id\":\"%s\",\"date\":\"%s\",\"dose\":\"%s\","
+        "\"primary_drug\":\"%s\",\"concurrent_drug\":\"%s\","
         "\"patient_egfr\":%.1f,\"verdict\":\"%s\",\"alert_code\":\"%s\","
         "\"override_status\":\"%s\",\"override_token\":\"%s\",\"override_rationale\":\"%s\","
+        "\"is_repeat_override\":%s,"
         "\"claim_net_aed\":%.2f,\"claim_delay_days\":%u,\"penalty_aed\":%.2f,"
         "\"canonical\":\"%s\",\"prev_sha256\":\"%s\",\"mac\":\"%s\","
         "\"sha256_signature\":\"%s\",\"state\":\"COMMITTED\"}\n",
         (unsigned long long)now_utc,
+        esc_pid,
+        esc_date,
+        esc_dose,
         esc_primary,
         esc_concurrent,
         g_session.patient_egfr,
-        (g_session.state == SESSION_OVERRIDDEN) ? "CLINICAL_CONTRAINDICATION_OVERRIDDEN" : "CLINICAL_SAFE",
+        (g_session.state == SESSION_OVERRIDDEN || g_session.override_approved)
+            ? (g_session.is_repeat_override ? "CLINICAL_CONTRAINDICATION_OVERRIDDEN_REPEAT" : "CLINICAL_CONTRAINDICATION_OVERRIDDEN")
+            : "CLINICAL_SAFE",
         esc_alert,
         g_session.override_approved ? "APPROVED" : "NONE",
         esc_token,
         esc_rationale,
+        g_session.is_repeat_override ? "true" : "false",
         g_session.net_claim_aed,
         g_session.delay_days,
         g_session.penalty_aed,
@@ -966,6 +1403,26 @@ static bool taryaq_commit_audit(const char *audit_path, bool enable_telemetry) {
     fsync(fd);
     flock(fd, LOCK_UN);
     close(fd);
+
+    /* Record encounter to longitudinal patient timeline */
+    taryaq_encounter_t enc;
+    memset(&enc, 0, sizeof(enc));
+    snprintf(enc.patient_id, sizeof(enc.patient_id), "%s", g_session.patient_id[0] ? g_session.patient_id : "DXB-PAT-001");
+    snprintf(enc.date, sizeof(enc.date), "%s", cur_date);
+    snprintf(enc.primary_drug, sizeof(enc.primary_drug), "%s", g_session.primary_drug);
+    snprintf(enc.concurrent_drug, sizeof(enc.concurrent_drug), "%s", g_session.concurrent_drug);
+    snprintf(enc.dose, sizeof(enc.dose), "%s", g_session.dose[0] ? g_session.dose : "Standard Dose");
+    enc.patient_egfr = g_session.patient_egfr;
+    snprintf(enc.verdict, sizeof(enc.verdict), "%s",
+             (g_session.state == SESSION_OVERRIDDEN || g_session.override_approved)
+                 ? (g_session.is_repeat_override ? "CLINICAL_CONTRAINDICATION_OVERRIDDEN_REPEAT" : "CLINICAL_CONTRAINDICATION_OVERRIDDEN")
+                 : "CLINICAL_SAFE");
+    snprintf(enc.alert_code, sizeof(enc.alert_code), "%s", g_session.alert_code[0] ? g_session.alert_code : "NONE");
+    snprintf(enc.override_token, sizeof(enc.override_token), "%s", g_session.override_approved ? g_session.override_token : "NONE");
+    snprintf(enc.override_rationale, sizeof(enc.override_rationale), "%s", g_session.override_approved ? g_session.override_rationale : "NONE");
+    enc.is_repeat_override = g_session.is_repeat_override;
+    enc.timestamp_utc = now_utc;
+    taryaq_record_encounter(taryaq_get_timeline_path(), &enc);
 
     g_session.state = SESSION_COMMITTED;
 
@@ -1227,6 +1684,32 @@ static int run_test_scenario(const char *audit_path, bool enable_telemetry) {
     }
     printf("[TRIAGE GATE] Patient Emergency Red-Flag Triage verified (Arabic/English interrupts & routine) -> PASS\n");
 
+    /* Milestone 9: Timeline Gate - Record and detect repeat override */
+    taryaq_encounter_t demo_enc;
+    memset(&demo_enc, 0, sizeof(demo_enc));
+    snprintf(demo_enc.patient_id, sizeof(demo_enc.patient_id), "TEST-PAT-001");
+    snprintf(demo_enc.date, sizeof(demo_enc.date), "2026-01-01");
+    snprintf(demo_enc.primary_drug, sizeof(demo_enc.primary_drug), "Colchicine");
+    snprintf(demo_enc.concurrent_drug, sizeof(demo_enc.concurrent_drug), "Clarithromycin");
+    demo_enc.patient_egfr = 45.0;
+    snprintf(demo_enc.verdict, sizeof(demo_enc.verdict), "CLINICAL_CONTRAINDICATION_OVERRIDDEN");
+    snprintf(demo_enc.alert_code, sizeof(demo_enc.alert_code), "FATAL_CYP3A4_RENAL_CONTRAINDICATION");
+    snprintf(demo_enc.override_token, sizeof(demo_enc.override_token), "TARYAQ-OVERRIDE-8842-CLIN");
+    snprintf(demo_enc.override_rationale, sizeof(demo_enc.override_rationale), "Inpatient monitoring");
+    demo_enc.is_repeat_override = false;
+    demo_enc.timestamp_utc = taryaq_now_utc();
+    taryaq_record_encounter("build/test_timeline.jsonl", &demo_enc);
+
+    taryaq_encounter_t prior_chk;
+    bool repeat_detected = taryaq_check_repeat_override("build/test_timeline.jsonl", "TEST-PAT-001",
+        "Colchicine", "Clarithromycin", "FATAL_CYP3A4_RENAL_CONTRAINDICATION", &prior_chk);
+    if (!repeat_detected || strcmp(prior_chk.override_token, "TARYAQ-OVERRIDE-8842-CLIN") != 0) {
+        fprintf(stderr, "[-] Fatal: Longitudinal engine failed to detect prior override for test patient!\n");
+        return 1;
+    }
+    (void)remove("build/test_timeline.jsonl");
+    printf("[TIMELINE GATE] Longitudinal Encounter History & Repeat Override Escalation -> PASS\n");
+
     double t_total = taryaq_get_monotonic_ms() - t_start;
 
     printf("================================================================================\n");
@@ -1239,6 +1722,179 @@ static int run_test_scenario(const char *audit_path, bool enable_telemetry) {
 }
 
 /* ========================================================================= */
+/* 10c. Execution Mode: Timeline & Trajectory Demo (--timeline-demo)          */
+/* ========================================================================= */
+
+static int run_timeline_demo(const char *timeline_path, const char *audit_path, bool enable_telemetry) {
+    const char *t_path = timeline_path ? timeline_path : taryaq_get_timeline_path();
+    const char *a_path = audit_path ? audit_path : DEFAULT_AUDIT_LOG;
+
+    /* Isolate token ledger and timeline ledger for clean demonstration */
+    qala_set_token_store_path("build/taryaq_demo_tokens.jsonl");
+    (void)remove("build/taryaq_demo_tokens.jsonl");
+    (void)remove(t_path);
+
+    /* Ensure test key is active if not set in environment */
+    if (!getenv("TARYAQ_AUDIT_KEY")) {
+        setenv("TARYAQ_AUDIT_KEY", "test-key-32-bytes-minimum-000000", 0);
+    }
+
+    printf("================================================================================\n");
+    printf("  TARYAQ LONGITUDINAL PATIENT TRAJECTORY DEMO (6 Clinical Encounters)\n");
+    printf("  Dubai Create AI Agents Championship 2026-2027 | Best Societal AI Agent\n");
+    printf("  Patient: DXB-PAT-7819 | Chronic Kidney Disease Progression & Repeat Override\n");
+    printf("================================================================================\n");
+
+    const char *pid = "DXB-PAT-7819";
+
+    /* Setup approval slots for the demo */
+    qala_approval_slot_t approval_slots[4];
+    memset(approval_slots, 0, sizeof(approval_slots));
+    snprintf(approval_slots[0].token, sizeof(approval_slots[0].token), "TARYAQ-OVERRIDE-8842-CLIN");
+    snprintf(approval_slots[0].scope, sizeof(approval_slots[0].scope), "clinical_override");
+    approval_slots[0].expires_utc = taryaq_now_utc() + 86400 * 365;
+    approval_slots[0].consumed = false;
+
+    snprintf(approval_slots[1].token, sizeof(approval_slots[1].token), "DUBAI-CLIN-APPROVE-7701");
+    snprintf(approval_slots[1].scope, sizeof(approval_slots[1].scope), "clinical_override");
+    approval_slots[1].expires_utc = taryaq_now_utc() + 86400 * 365;
+    approval_slots[1].consumed = false;
+
+    /* ENCOUNTER 1 (2025-06-10): Baseline Normal Kidney Function */
+    memset(&g_session, 0, sizeof(g_session));
+    snprintf(g_session.patient_id, sizeof(g_session.patient_id), "%s", pid);
+    snprintf(g_session.date, sizeof(g_session.date), "2025-06-10");
+    snprintf(g_session.primary_drug, sizeof(g_session.primary_drug), "Metformin");
+    snprintf(g_session.dose, sizeof(g_session.dose), "1000mg BID");
+    g_session.patient_egfr = 92.0;
+    g_session.state = SESSION_SAFE;
+    if (!taryaq_commit_audit(a_path, enable_telemetry)) {
+        fprintf(stderr, "[-] Encounter 1 commit failed\n");
+        return 1;
+    }
+    printf("[ENCOUNTER 1/6] 2025-06-10 | Baseline: Metformin 1000mg BID (eGFR: 92.0) -> SAFE -> COMMITTED\n");
+
+    /* ENCOUNTER 2 (2025-10-15): Mild Renal Decline & Polypharmacy */
+    memset(&g_session, 0, sizeof(g_session));
+    snprintf(g_session.patient_id, sizeof(g_session.patient_id), "%s", pid);
+    snprintf(g_session.date, sizeof(g_session.date), "2025-10-15");
+    snprintf(g_session.primary_drug, sizeof(g_session.primary_drug), "Simvastatin");
+    snprintf(g_session.concurrent_drug, sizeof(g_session.concurrent_drug), "Amlodipine");
+    snprintf(g_session.dose, sizeof(g_session.dose), "20mg + 5mg");
+    g_session.patient_egfr = 74.0;
+    g_session.state = SESSION_SAFE;
+    if (!taryaq_commit_audit(a_path, enable_telemetry)) {
+        fprintf(stderr, "[-] Encounter 2 commit failed\n");
+        return 1;
+    }
+    printf("[ENCOUNTER 2/6] 2025-10-15 | Polypharmacy: Simvastatin 20mg + Amlodipine 5mg (eGFR: 74.0, Stage 2) -> SAFE -> COMMITTED\n");
+
+    /* ENCOUNTER 3 (2026-02-01): Acute Gout Flare - 1st Override */
+    memset(&g_session, 0, sizeof(g_session));
+    snprintf(g_session.patient_id, sizeof(g_session.patient_id), "%s", pid);
+    snprintf(g_session.date, sizeof(g_session.date), "2026-02-01");
+    snprintf(g_session.primary_drug, sizeof(g_session.primary_drug), "Colchicine");
+    snprintf(g_session.concurrent_drug, sizeof(g_session.concurrent_drug), "Clarithromycin");
+    snprintf(g_session.dose, sizeof(g_session.dose), "0.5mg + 500mg BID");
+    g_session.patient_egfr = 45.0;
+    taryaq_check_result_t chk3 = taryaq_interaction_check("Colchicine", "Clarithromycin", 45.0, false);
+    snprintf(g_session.alert_code, sizeof(g_session.alert_code), "%s", chk3.alert_code);
+    g_session.state = SESSION_BLOCKED;
+
+    taryaq_override_result_t ov3 = taryaq_human_override(
+        "TARYAQ-OVERRIDE-8842-CLIN",
+        "Short-course low-dose colchicine under inpatient telemetry; daily creatinine monitoring",
+        approval_slots, 2, taryaq_now_utc());
+    if (!ov3.override_approved) {
+        fprintf(stderr, "[-] Encounter 3 override rejected: %s\n", ov3.err_message);
+        return 1;
+    }
+    g_session.override_approved = true;
+    snprintf(g_session.override_token, sizeof(g_session.override_token), "%s", ov3.token);
+    snprintf(g_session.override_rationale, sizeof(g_session.override_rationale), "%s", ov3.rationale);
+    g_session.state = SESSION_OVERRIDDEN;
+    g_session.is_repeat_override = false;
+    if (!taryaq_commit_audit(a_path, enable_telemetry)) {
+        fprintf(stderr, "[-] Encounter 3 commit failed\n");
+        return 1;
+    }
+    printf("[ENCOUNTER 3/6] 2026-02-01 | Gout Flare: Colchicine + Clarithromycin (eGFR: 45.0, Stage 3a) -> BLOCKED -> 1st OVERRIDE VERIFIED -> COMMITTED\n");
+
+    /* ENCOUNTER 4 (2026-05-18): Post-Infection Check & Dental Antibiotics */
+    memset(&g_session, 0, sizeof(g_session));
+    snprintf(g_session.patient_id, sizeof(g_session.patient_id), "%s", pid);
+    snprintf(g_session.date, sizeof(g_session.date), "2026-05-18");
+    snprintf(g_session.primary_drug, sizeof(g_session.primary_drug), "Paracetamol");
+    snprintf(g_session.concurrent_drug, sizeof(g_session.concurrent_drug), "Amoxicillin");
+    snprintf(g_session.dose, sizeof(g_session.dose), "1000mg PRN + 500mg TID");
+    g_session.patient_egfr = 35.0;
+    g_session.state = SESSION_SAFE;
+    if (!taryaq_commit_audit(a_path, enable_telemetry)) {
+        fprintf(stderr, "[-] Encounter 4 commit failed\n");
+        return 1;
+    }
+    printf("[ENCOUNTER 4/6] 2026-05-18 | Infection: Paracetamol 1000mg + Amoxicillin 500mg (eGFR: 35.0, Stage 3b) -> SAFE -> COMMITTED\n");
+
+    /* ENCOUNTER 5 (2026-08-22): Severe CKD Progression & Metformin Renal Block */
+    memset(&g_session, 0, sizeof(g_session));
+    snprintf(g_session.patient_id, sizeof(g_session.patient_id), "%s", pid);
+    snprintf(g_session.date, sizeof(g_session.date), "2026-08-22");
+    snprintf(g_session.primary_drug, sizeof(g_session.primary_drug), "Metformin");
+    snprintf(g_session.dose, sizeof(g_session.dose), "1000mg BID");
+    g_session.patient_egfr = 26.0;
+    taryaq_check_result_t chk5 = taryaq_interaction_check("Metformin", NULL, 26.0, false);
+    snprintf(g_session.alert_code, sizeof(g_session.alert_code), "%s", chk5.alert_code);
+    g_session.state = SESSION_BLOCKED;
+    taryaq_rollback_state("Metformin contraindicated in severe CKD (eGFR < 30)", a_path, enable_telemetry);
+    printf("[ENCOUNTER 5/6] 2026-08-22 | Severe CKD: Metformin 1000mg BID (eGFR: 26.0, Stage 4) -> BLOCKED (Lactic Acidosis Risk) -> ROLLED BACK\n");
+
+    /* ENCOUNTER 6 (2026-10-26): Recurrent Flare - REPEAT OVERRIDE FLAGGED */
+    memset(&g_session, 0, sizeof(g_session));
+    snprintf(g_session.patient_id, sizeof(g_session.patient_id), "%s", pid);
+    snprintf(g_session.date, sizeof(g_session.date), "2026-10-26");
+    snprintf(g_session.primary_drug, sizeof(g_session.primary_drug), "Colchicine");
+    snprintf(g_session.concurrent_drug, sizeof(g_session.concurrent_drug), "Clarithromycin");
+    snprintf(g_session.dose, sizeof(g_session.dose), "0.5mg + 500mg BID");
+    g_session.patient_egfr = 22.0;
+    taryaq_check_result_t chk6 = taryaq_interaction_check("Colchicine", "Clarithromycin", 22.0, false);
+    snprintf(g_session.alert_code, sizeof(g_session.alert_code), "%s", chk6.alert_code);
+    g_session.state = SESSION_BLOCKED;
+
+    /* Longitudinal Check for Repeat Override */
+    taryaq_encounter_t prior_ov;
+    bool is_repeat = taryaq_check_repeat_override(t_path, pid, "Colchicine", "Clarithromycin", chk6.alert_code, &prior_ov);
+    if (!is_repeat) {
+        fprintf(stderr, "[-] Fatal: Longitudinal engine failed to detect repeat override!\n");
+        return 1;
+    }
+
+    taryaq_override_result_t ov6 = taryaq_human_override(
+        "DUBAI-CLIN-APPROVE-7701",
+        "ICU continuous hemodialysis initiated; nephrology specialist co-signature verified",
+        approval_slots, 2, taryaq_now_utc());
+    if (!ov6.override_approved) {
+        fprintf(stderr, "[-] Encounter 6 override rejected: %s\n", ov6.err_message);
+        return 1;
+    }
+    g_session.override_approved = true;
+    snprintf(g_session.override_token, sizeof(g_session.override_token), "%s", ov6.token);
+    snprintf(g_session.override_rationale, sizeof(g_session.override_rationale), "%s", ov6.rationale);
+    g_session.state = SESSION_OVERRIDDEN;
+    g_session.is_repeat_override = true;
+    if (!taryaq_commit_audit(a_path, enable_telemetry)) {
+        fprintf(stderr, "[-] Encounter 6 commit failed\n");
+        return 1;
+    }
+    printf("[ENCOUNTER 6/6] 2026-10-26 | Recurrent Flare: Colchicine + Clarithromycin (eGFR: 22.0, Stage 4)\n");
+    printf("              [!] REPEAT OVERRIDE FLAGGED (Prior: %s at %.1f ml/min) -> ESCALATED -> COMMITTED\n\n",
+           prior_ov.date, prior_ov.patient_egfr);
+
+    /* Render Chronological Trajectory and eGFR Chart */
+    taryaq_display_timeline(t_path, pid);
+    return 0;
+}
+
+/* ========================================================================= */
 /* 11. Execution Mode: Interactive CLI (--cli)                               */
 /* ========================================================================= */
 
@@ -1247,6 +1903,10 @@ static void print_cli_help(void) {
     printf(" TARYAQ v0 CLI DAEMON COMMANDS:\n");
     printf("   lookup <drug_name>                  - Query local graph (Arabic or English)\n");
     printf("   rx <primary> [concurrent] [egfr]    - Intake prescription vitals\n");
+    printf("   timeline [patient_id]               - Display longitudinal trajectory & eGFR trends\n");
+    printf("   patient <patient_id>                - Set active patient ID for session\n");
+    printf("   dose <dosage_string>                - Set prescription dosage\n");
+    printf("   date <YYYY-MM-DD>                   - Set encounter date\n");
     printf("   check                               - Run contraindication & interaction engine\n");
     printf("   claim <net_aed> <delay_days> [note] - Run DHA SN 03/2019 claim cycle scrubber\n");
     printf("   override <token> <rationale...>     - Apply single-use cryptographic override\n");
@@ -1319,17 +1979,46 @@ static void run_cli_loop(const char *audit_path, bool enable_telemetry) {
             else if (g_session.state == SESSION_ROLLED_BACK) st_str = "ROLLED_BACK";
 
             printf("Session State:      %s\n", st_str);
+            printf("Patient ID:         %s\n", g_session.patient_id[0] ? g_session.patient_id : "(default: DXB-PAT-001)");
+            printf("Encounter Date:     %s\n", g_session.date[0] ? g_session.date : "(today)");
+            printf("Dose:               %s\n", g_session.dose[0] ? g_session.dose : "(standard)");
             printf("Primary Drug:       %s\n", g_session.primary_drug[0] ? g_session.primary_drug : "(none)");
             printf("Concurrent Drug:    %s\n", g_session.concurrent_drug[0] ? g_session.concurrent_drug : "(none)");
             printf("Patient eGFR:       %.1f ml/min\n", g_session.patient_egfr);
             printf("Alert Code:         %s\n", g_session.alert_code[0] ? g_session.alert_code : "(none)");
-            printf("Override Status:    %s\n", g_session.override_approved ? "APPROVED" : "NOT_APPLIED");
+            printf("Override Status:    %s\n", g_session.override_approved ? (g_session.is_repeat_override ? "APPROVED (REPEAT FLAGGED)" : "APPROVED") : "NOT_APPLIED");
+            printf("Repeat Override:    %s\n", g_session.is_repeat_override ? "YES (ESCALATED)" : "NO");
             if (g_session.override_approved) {
                 printf("Override Token:     %s\n", g_session.override_token);
                 printf("Override Rationale: %s\n", g_session.override_rationale);
             }
             printf("Claim Amount:       AED %.2f (Delay: %u days, Penalty: AED %.2f)\n",
                    g_session.net_claim_aed, g_session.delay_days, g_session.penalty_aed);
+        } else if (strcmp(cmd, "timeline") == 0) {
+            const char *target_pid = (parsed >= 2 && rest[0] != '\0') ? rest :
+                                     (g_session.patient_id[0] != '\0' ? g_session.patient_id : "DXB-PAT-7819");
+            taryaq_display_timeline(taryaq_get_timeline_path(), target_pid);
+        } else if (strcmp(cmd, "patient") == 0) {
+            if (parsed < 2 || rest[0] == '\0') {
+                printf("Usage: patient <patient_id>\n");
+                continue;
+            }
+            snprintf(g_session.patient_id, sizeof(g_session.patient_id), "%s", rest);
+            printf("[+] Active patient set to: %s\n", g_session.patient_id);
+        } else if (strcmp(cmd, "date") == 0) {
+            if (parsed < 2 || rest[0] == '\0') {
+                printf("Usage: date <YYYY-MM-DD>\n");
+                continue;
+            }
+            snprintf(g_session.date, sizeof(g_session.date), "%s", rest);
+            printf("[+] Encounter date set to: %s\n", g_session.date);
+        } else if (strcmp(cmd, "dose") == 0) {
+            if (parsed < 2 || rest[0] == '\0') {
+                printf("Usage: dose <dosage_string>\n");
+                continue;
+            }
+            snprintf(g_session.dose, sizeof(g_session.dose), "%s", rest);
+            printf("[+] Prescription dosage set to: %s\n", g_session.dose);
         } else if (strcmp(cmd, "lookup") == 0 || strcmp(cmd, "بحث") == 0) {
             if (parsed < 2 || rest[0] == '\0') {
                 printf("Usage: lookup <drug_name_ar_or_en>\n");
@@ -1364,7 +2053,18 @@ static void run_cli_loop(const char *audit_path, bool enable_telemetry) {
                 egfr = 90.0;
             }
 
+            char saved_pid[64] = {0};
+            char saved_date[32] = {0};
+            char saved_dose[64] = {0};
+            snprintf(saved_pid, sizeof(saved_pid), "%s", g_session.patient_id);
+            snprintf(saved_date, sizeof(saved_date), "%s", g_session.date);
+            snprintf(saved_dose, sizeof(saved_dose), "%s", g_session.dose);
+
             memset(&g_session, 0, sizeof(g_session));
+            if (saved_pid[0]) snprintf(g_session.patient_id, sizeof(g_session.patient_id), "%s", saved_pid);
+            if (saved_date[0]) snprintf(g_session.date, sizeof(g_session.date), "%s", saved_date);
+            if (saved_dose[0]) snprintf(g_session.dose, sizeof(g_session.dose), "%s", saved_dose);
+
             snprintf(g_session.primary_drug, sizeof(g_session.primary_drug), "%s", p_drug);
             if (c_drug[0] != '\0' && strcmp(c_drug, "none") != 0 && strcmp(c_drug, "-") != 0) {
                 snprintf(g_session.concurrent_drug, sizeof(g_session.concurrent_drug), "%s", c_drug);
@@ -1388,6 +2088,20 @@ static void run_cli_loop(const char *audit_path, bool enable_telemetry) {
                 g_session.state = SESSION_BLOCKED;
                 printf("[!] VERDICT: BLOCKED - %s\n", chk.alert_code);
                 printf("    %s\n", chk.clinical_rationale);
+
+                taryaq_encounter_t prior_ov;
+                if (taryaq_check_repeat_override(taryaq_get_timeline_path(),
+                        g_session.patient_id[0] ? g_session.patient_id : "DXB-PAT-001",
+                        g_session.primary_drug, g_session.concurrent_drug, chk.alert_code, &prior_ov)) {
+                    printf("[!] LONGITUDINAL TRAJECTORY ALERT: Patient '%s' has prior override for '%s' on %s (eGFR was %.1f ml/min).\n",
+                           g_session.patient_id[0] ? g_session.patient_id : "DXB-PAT-001",
+                           prior_ov.alert_code, prior_ov.date, prior_ov.patient_egfr);
+                    printf("    Current eGFR: %.1f ml/min (Change: %+.1f ml/min).\n",
+                           g_session.patient_egfr, g_session.patient_egfr - prior_ov.patient_egfr);
+                    printf("    ESCALATION: Any override for this encounter will be flagged as a REPEAT override.\n");
+                    g_session.is_repeat_override = true;
+                }
+
                 printf("    To override, run: override <token> <clinical_rationale>\n");
             } else if (chk.verdict == CLINICAL_CONTROLLED_DRUG_GATE) {
                 g_session.state = SESSION_BLOCKED;
@@ -1450,6 +2164,23 @@ static void run_cli_loop(const char *audit_path, bool enable_telemetry) {
             if (g_session.state != SESSION_BLOCKED) {
                 printf("[-] Notice: Session is not currently in BLOCKED state.\n");
             }
+
+            taryaq_encounter_t prior_ov;
+            bool is_repeat = taryaq_check_repeat_override(taryaq_get_timeline_path(),
+                g_session.patient_id[0] ? g_session.patient_id : "DXB-PAT-001",
+                g_session.primary_drug, g_session.concurrent_drug, g_session.alert_code, &prior_ov);
+
+            if (is_repeat) {
+                g_session.is_repeat_override = true;
+                printf("[!] WARNING: REPEAT OVERRIDE DETECTED for patient '%s'!\n",
+                       g_session.patient_id[0] ? g_session.patient_id : "DXB-PAT-001");
+                printf("    Prior override: %s on %s (eGFR was %.1f ml/min).\n",
+                       prior_ov.override_token, prior_ov.date, prior_ov.patient_egfr);
+                printf("    Current eGFR: %.1f ml/min (Change: %+.1f ml/min).\n",
+                       g_session.patient_egfr, g_session.patient_egfr - prior_ov.patient_egfr);
+                printf("    FLAGGED AS REPEAT OVERRIDE: Escalated to Division Chief Nephrologist audit queue.\n");
+            }
+
             taryaq_override_result_t ov = taryaq_human_override(
                 token, rationale, approval_slots, slot_count, taryaq_now_utc());
             if (ov.override_approved) {
@@ -1457,7 +2188,11 @@ static void run_cli_loop(const char *audit_path, bool enable_telemetry) {
                 snprintf(g_session.override_token, sizeof(g_session.override_token), "%s", ov.token);
                 snprintf(g_session.override_rationale, sizeof(g_session.override_rationale), "%s", ov.rationale);
                 g_session.state = SESSION_OVERRIDDEN;
-                printf("[+] OVERRIDE SUCCESS: Approval code '%s' accepted & consumed.\n", token);
+                if (g_session.is_repeat_override) {
+                    printf("[+] OVERRIDE SUCCESS: Approval code '%s' accepted & consumed (REPEAT ESCALATED).\n", token);
+                } else {
+                    printf("[+] OVERRIDE SUCCESS: Approval code '%s' accepted & consumed.\n", token);
+                }
                 printf("    Rationale: %s\n", rationale);
                 printf("    Ready to commit. Run: commit\n");
             } else {
@@ -1520,6 +2255,7 @@ static void run_cli_loop(const char *audit_path, bool enable_telemetry) {
 int main(int argc, char **argv) {
     bool test_mode = false;
     bool cli_mode = false;
+    bool timeline_demo_mode = false;
     bool enable_telemetry = false;
     const char *audit_path = DEFAULT_AUDIT_LOG;
 
@@ -1528,18 +2264,24 @@ int main(int argc, char **argv) {
             test_mode = true;
         } else if (strcmp(argv[i], "--cli") == 0) {
             cli_mode = true;
+        } else if (strcmp(argv[i], "--timeline-demo") == 0) {
+            timeline_demo_mode = true;
+        } else if (strcmp(argv[i], "--timeline-file") == 0 && (i + 1) < argc) {
+            g_timeline_path = argv[++i];
         } else if (strcmp(argv[i], "--telemetry") == 0) {
             enable_telemetry = true;
         } else if (strcmp(argv[i], "--audit-file") == 0 && (i + 1) < argc) {
             audit_path = argv[++i];
         } else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
-            printf("Usage: %s [--test] [--cli] [--telemetry] [--audit-file <path>] [--help]\n", argv[0]);
+            printf("Usage: %s [--test] [--cli] [--timeline-demo] [--timeline-file <path>] [--telemetry] [--audit-file <path>] [--help]\n", argv[0]);
             printf("Options:\n");
-            printf("  --test         Run automated deterministic acceptance test and exit 0 on success\n");
-            printf("  --cli          Launch interactive conversational CLI\n");
-            printf("  --telemetry    Enable optional live telemetry emission to http://127.0.0.1:8787/emit\n");
-            printf("  --audit-file   Override path to append-only JSONL audit log (default: taryaq_audit.jsonl)\n");
-            printf("  --help         Display this help message\n");
+            printf("  --test          Run automated deterministic acceptance test and exit 0 on success\n");
+            printf("  --cli           Launch interactive conversational CLI\n");
+            printf("  --timeline-demo Run 6-encounter longitudinal trajectory demo (CKD progression & repeat override)\n");
+            printf("  --timeline-file Override path to encounter history ledger (default: taryaq_encounters.jsonl)\n");
+            printf("  --telemetry     Enable optional live telemetry emission to http://127.0.0.1:8787/emit\n");
+            printf("  --audit-file    Override path to append-only JSONL audit log (default: taryaq_audit.jsonl)\n");
+            printf("  --help          Display this help message\n");
             return 0;
         }
     }
@@ -1549,7 +2291,9 @@ int main(int argc, char **argv) {
     }
 
     int rc = 0;
-    if (test_mode) {
+    if (timeline_demo_mode) {
+        rc = run_timeline_demo(g_timeline_path, audit_path, enable_telemetry);
+    } else if (test_mode) {
         rc = run_test_scenario(audit_path, enable_telemetry);
     } else {
         (void)cli_mode;

@@ -56,6 +56,10 @@ test: $(BIN) $(LIB)
 	@echo "=================================================================="
 	python3 tests/test_audit_tamper.py
 	@echo "=================================================================="
+	@echo " RUNNING TARYAQ LONGITUDINAL PATIENT TIMELINE SUITE"
+	@echo "=================================================================="
+	python3 tests/test_patient_timeline.py
+	@echo "=================================================================="
 	@echo " RUNNING TARYAQ GOMAA LONGITUDINAL PATIENT MEMORY SUITE"
 	@echo "=================================================================="
 	python3 tests/test_taryaq_gomaa.py
@@ -65,6 +69,9 @@ test: $(BIN) $(LIB)
 	$(MAKE) audit-verify AUDIT_FILE=taryaq_audit.jsonl
 	@echo "[SUCCESS] All Taryaq Agent verification suites passed deterministically!"
 
+timeline-demo: $(BIN)
+	@TARYAQ_AUDIT_KEY="$${TARYAQ_AUDIT_KEY:-test-key-32-bytes-minimum-000000}" ./$(BIN) --timeline-demo
+
 audit-verify:
 	@TARYAQ_AUDIT_KEY="$${TARYAQ_AUDIT_KEY:?set TARYAQ_AUDIT_KEY}" python3 tools/verify_audit.py --ledger $${AUDIT_FILE:-taryaq_audit.jsonl}
 
@@ -72,8 +79,8 @@ verify: test audit-verify
 
 clean:
 	rm -rf $(BUILD_DIR)
-	rm -f taryaq_audit.jsonl qala-audit.jsonl
+	rm -f taryaq_audit.jsonl qala-audit.jsonl taryaq_encounters.jsonl
 	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete 2>/dev/null || true
 
-.PHONY: all test verify audit-verify clean
+.PHONY: all test verify audit-verify timeline-demo clean

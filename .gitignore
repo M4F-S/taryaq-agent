@@ -9,6 +9,8 @@ build/
 # Runtime logs
 taryaq_audit.jsonl
 *.audit.jsonl
+taryaq_encounters.jsonl
+*.encounters.jsonl
 __pycache__/
 *.pyc
 
