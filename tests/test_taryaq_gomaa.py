@@ -15,9 +15,10 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT_DIR)
 sys.path.insert(0, os.path.join(ROOT_DIR, "adapters"))
 
-from taryaq_gomaa_bridge import TaryaqLongitudinalPatientMemory
+from taryaq_gomaa_bridge import TaryaqLongitudinalPatientMemory, GOMAA_AVAILABLE
 
 
+@unittest.skipUnless(GOMAA_AVAILABLE, "optional: gomaa Memory OS not installed (set GOMAA_HOME)")
 class TestTaryaqGomaaIntegration(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp(prefix="taryaq_gomaa_test_")

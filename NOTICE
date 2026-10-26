@@ -1,0 +1,11 @@
+Taryaq (ترياق)
+Copyright 2026 Mohamed Fathy, BPharm
+
+This product includes software derived from:
+  - Belya (C99 autonomous SE core)    — © Mohamed Fathy — https://github.com/M4F-S/Belya
+  - gomaa (agent memory OS, optional) — © Mohamed Fathy — https://github.com/M4F-S/gomaa
+
+Components:
+  - adapters/taryaq_clinical_adapter.c
+  - src/taryaq_agent.c
+  - adapters/taryaq_gomaa_bridge.py

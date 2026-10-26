@@ -20,6 +20,8 @@ import unittest
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 AGENT_BIN = os.path.join(ROOT_DIR, "build", "taryaq_agent")
 
+os.environ.setdefault("TARYAQ_AUDIT_KEY", "test-key-32-bytes-minimum-000000")
+
 
 class TestTaryaqAcceptance(unittest.TestCase):
     @classmethod

@@ -23,6 +23,8 @@ ADAPTER_SRCS = adapters/taryaq_clinical_adapter.c \
                adapters/nibras_arabic_fademem_adapter.c \
                adapters/qala_mcp_policy_adapter.c
 
+export TARYAQ_AUDIT_KEY ?= test-key-32-bytes-minimum-000000
+
 all: $(BIN) $(LIB)
 
 $(BUILD_DIR):
@@ -50,13 +52,28 @@ test: $(BIN) $(LIB)
 	@echo "=================================================================="
 	python3 tests/test_taryaq_acceptance.py
 	@echo "=================================================================="
+	@echo " RUNNING TARYAQ CRYPTOGRAPHIC AUDIT TAMPER SUITE"
+	@echo "=================================================================="
+	python3 tests/test_audit_tamper.py
+	@echo "=================================================================="
 	@echo " RUNNING TARYAQ GOMAA LONGITUDINAL PATIENT MEMORY SUITE"
 	@echo "=================================================================="
 	python3 tests/test_taryaq_gomaa.py
+	@echo "=================================================================="
+	@echo " RUNNING TARYAQ HMAC AUDIT CHAIN VERIFICATION"
+	@echo "=================================================================="
+	$(MAKE) audit-verify AUDIT_FILE=taryaq_audit.jsonl
 	@echo "[SUCCESS] All Taryaq Agent verification suites passed deterministically!"
+
+audit-verify:
+	@TARYAQ_AUDIT_KEY="$${TARYAQ_AUDIT_KEY:?set TARYAQ_AUDIT_KEY}" python3 tools/verify_audit.py --ledger $${AUDIT_FILE:-taryaq_audit.jsonl}
+
+verify: test audit-verify
 
 clean:
 	rm -rf $(BUILD_DIR)
 	rm -f taryaq_audit.jsonl qala-audit.jsonl *.audit.jsonl *.tokens.jsonl *.jsonl
+	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+	find . -type f -name "*.pyc" -delete 2>/dev/null || true
 
-.PHONY: all test clean
+.PHONY: all test verify audit-verify clean
