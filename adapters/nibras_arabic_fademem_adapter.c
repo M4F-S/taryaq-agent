@@ -174,9 +174,10 @@ void nibras_fademem_step_hardened(
     for (size_t i = 0; i < count; ++i) {
         out_snap->total_raw_tokens += nodes[i].token_cost;
 
-        /* AF-09 Fix: Preserve previously distilled permanent rules */
-        if (nodes[i].state == TRAJ_DISTILLED_RULE) {
+        /* AF-09 Fix: Preserve previously distilled permanent rules or explicitly pinned nodes */
+        if (nodes[i].state == TRAJ_DISTILLED_RULE || nodes[i].is_pinned) {
             nodes[i].current_intensity = 1.0;
+            nodes[i].state = TRAJ_DISTILLED_RULE;
             out_snap->distilled_rules_count++;
             out_snap->active_tokens_after_prune += (nodes[i].token_cost > 0) ? ((nodes[i].token_cost + 5U) / 6U) : 0;
             continue;
@@ -231,6 +232,283 @@ void nibras_fademem_step_hardened(
                                        : 0.0;
 }
 
+#include <ctype.h>
+
+static void nib_strlcpy(char *dst, const char *src, size_t cap) {
+    if (!dst || cap == 0) return;
+    size_t n = src ? strlen(src) : 0;
+    if (n >= cap) n = cap - 1;
+    if (n) memcpy(dst, src, n);
+    dst[n] = '\0';
+}
+
+static void add_entity_item(
+    nibras_extracted_info_t *info,
+    nibras_entity_type_t     type,
+    const char              *label,
+    const char              *text,
+    size_t                   offset
+) {
+    if (!info || info->entity_count >= 16 || !text || text[0] == '\0') return;
+    nibras_entity_t *ent = &info->entities[info->entity_count++];
+    ent->type = type;
+    ent->offset = offset;
+    nib_strlcpy(ent->label, label, sizeof(ent->label));
+    nib_strlcpy(ent->text, text, sizeof(ent->text));
+}
+
+static void extract_phrase_around(const char *start, size_t max_bytes, char *out_buf, size_t out_cap) {
+    if (!start || !out_buf || out_cap == 0) return;
+    size_t i = 0;
+    size_t last_space = 0;
+
+    while (start[i] != '\0' && i < max_bytes && (i + 4) < out_cap) {
+        if (start[i] == '\n' || start[i] == '.' || start[i] == ';' || start[i] == ':') {
+            break;
+        }
+        if (start[i] == ' ' || start[i] == '\t') {
+            last_space = i;
+        }
+        size_t cp_len = utf8_codepoint_len((unsigned char)start[i]);
+        if (i + cp_len > max_bytes || (i + cp_len + 1) >= out_cap) {
+            break;
+        }
+        for (size_t k = 0; k < cp_len; ++k) {
+            out_buf[i + k] = start[i + k];
+        }
+        i += cp_len;
+    }
+
+    /* If we truncated mid-word before the end of the text, rewind to last space */
+    if (start[i] != '\0' && last_space > 0 && i >= max_bytes) {
+        i = last_space;
+    }
+
+    while (i > 0 && (out_buf[i - 1] == ' ' || out_buf[i - 1] == '\t')) {
+        i--;
+    }
+    out_buf[i] = '\0';
+}
+
+static bool extract_clock_time(const char *src, char *dst, size_t dst_cap, size_t *out_offset) {
+    if (!src || !dst || dst_cap == 0) return false;
+    const char *p = strstr(src, "الساعه");
+    if (!p) return false;
+
+    if (out_offset) *out_offset = (size_t)(p - src);
+
+    const char *start = p;
+    p += strlen("الساعه");
+    while (*p == ' ' || *p == '\t') p++;
+
+    if (!isdigit((unsigned char)*p)) return false;
+
+    const char *end = p;
+    while (*end != '\0' && (isdigit((unsigned char)*end) || *end == ':' || *end == ' ')) {
+        end++;
+    }
+
+    if (strncmp(end, "صباحا", strlen("صباحا")) == 0) {
+        end += strlen("صباحا");
+    } else if (strncmp(end, "مساء", strlen("مساء")) == 0) {
+        end += strlen("مساء");
+    } else if (strncmp(end, "ظهرا", strlen("ظهرا")) == 0) {
+        end += strlen("ظهرا");
+    } else if (strncmp(end, "عصرا", strlen("عصرا")) == 0) {
+        end += strlen("عصرا");
+    }
+
+    size_t len = (size_t)(end - start);
+    if (len >= dst_cap) len = dst_cap - 1;
+    if (len) memcpy(dst, start, len);
+    dst[len] = '\0';
+    return true;
+}
+
+/* Deterministic Arabic entity, appointment, and action item extractor */
+size_t nibras_extract_arabic_entities(
+    const char              *normalized_text,
+    nibras_extracted_info_t *out_info
+) {
+    if (!normalized_text || !out_info) return 0;
+    memset(out_info, 0, sizeof(*out_info));
+
+    static const char *APPOINTMENTS[] = {
+        "مجلس اداره", "جلسه عمل", "اجتماع", "لقاء", "مقابله", "موعد", "مكالمه", "اتصال", NULL
+    };
+
+    static const char *ACTIONS[] = {
+        "متابعه", "ارسال", "مراجعه", "توقيع", "سداد", "دفع", "حجز",
+        "اعداد", "تحديث", "تاكيد", "الغاء", "اعتماد", "شراء", "تحويل",
+        "تسليم", "صياغه", NULL
+    };
+
+    static const char *DECISIONS[] = {
+        "قرار", "سياسه", "تفضيل", "مبدا", "استراتيجيه", "عقد", "حظر", "الزام", "قانون", NULL
+    };
+
+    static const char *RELATIVE_DATES[] = {
+        "بعد غد", "عقب باكر", "غدا", "باكر", "اليوم", "امس", "البارحه", NULL
+    };
+
+    static const char *WEEKDAYS[] = {
+        "الاحد", "الاثنين", "الثلاثاء", "الاربعاء", "الخميس", "الجمعه", "السبت", NULL
+    };
+
+    static const char *MONTHS[] = {
+        "يناير", "فبراير", "مارس", "ابريل", "مايو", "يونيو",
+        "يوليو", "اغسطس", "سبتمبر", "اكتوبر", "نوفمبر", "ديسمبر",
+        "كانون الثاني", "شباط", "اذار", "نيسان", "ايار", "حزيران",
+        "تموز", "اب", "ايلول", "تشرين الاول", "تشرين الثاني", "كانون الاول",
+        NULL
+    };
+
+    static const char *POSITIVE_WORDS[] = {
+        "نجاح", "تم", "اعتماد", "موافقه", "انجاز", "مكتمل", "ربح", "فوز", "حقق", NULL
+    };
+
+    static const char *NEGATIVE_WORDS[] = {
+        "تاخير", "غرامه", "فشل", "مشكله", "نزاع", "رفض", "عطل", "خساره", "تنبيه", NULL
+    };
+
+    /* 1. Detect Executive Decisions & Policies */
+    for (int i = 0; DECISIONS[i] != NULL; ++i) {
+        const char *p = strstr(normalized_text, DECISIONS[i]);
+        if (p) {
+            out_info->is_executive_decision = true;
+            out_info->suggest_pin = true;
+            add_entity_item(out_info, NIBRAS_ENTITY_DECISION, "DECISION", DECISIONS[i], (size_t)(p - normalized_text));
+            break;
+        }
+    }
+
+    /* 2. Detect Appointments */
+    for (int i = 0; APPOINTMENTS[i] != NULL; ++i) {
+        const char *p = strstr(normalized_text, APPOINTMENTS[i]);
+        if (p) {
+            out_info->is_appointment = true;
+            extract_phrase_around(p, 64, out_info->appointment_title, sizeof(out_info->appointment_title));
+            add_entity_item(out_info, NIBRAS_ENTITY_APPOINTMENT, "APPOINTMENT", out_info->appointment_title, (size_t)(p - normalized_text));
+            break;
+        }
+    }
+
+    /* 3. Detect Action Items */
+    for (int i = 0; ACTIONS[i] != NULL; ++i) {
+        const char *p = strstr(normalized_text, ACTIONS[i]);
+        if (p) {
+            out_info->is_action_item = true;
+            extract_phrase_around(p, 64, out_info->action_verb, sizeof(out_info->action_verb));
+            add_entity_item(out_info, NIBRAS_ENTITY_ACTION, "ACTION", out_info->action_verb, (size_t)(p - normalized_text));
+            break;
+        }
+    }
+
+    /* 4. Detect Dates & Times */
+    char date_buf[64] = {0};
+    char time_buf[64] = {0};
+    size_t date_off = 0;
+    size_t time_off = 0;
+    bool has_date = false;
+
+    /* Relative date */
+    for (int i = 0; RELATIVE_DATES[i] != NULL; ++i) {
+        const char *p = strstr(normalized_text, RELATIVE_DATES[i]);
+        if (p) {
+            nib_strlcpy(date_buf, RELATIVE_DATES[i], sizeof(date_buf));
+            date_off = (size_t)(p - normalized_text);
+            has_date = true;
+            break;
+        }
+    }
+
+    /* Weekday if no relative date */
+    if (!has_date) {
+        for (int i = 0; WEEKDAYS[i] != NULL; ++i) {
+            const char *p = strstr(normalized_text, WEEKDAYS[i]);
+            if (p) {
+                nib_strlcpy(date_buf, WEEKDAYS[i], sizeof(date_buf));
+                date_off = (size_t)(p - normalized_text);
+                has_date = true;
+                break;
+            }
+        }
+    }
+
+    /* Month if still no date */
+    if (!has_date) {
+        for (int i = 0; MONTHS[i] != NULL; ++i) {
+            const char *p = strstr(normalized_text, MONTHS[i]);
+            if (p) {
+                /* Check for preceding day number */
+                const char *scan = p;
+                while (scan > normalized_text && *(scan - 1) == ' ') scan--;
+                const char *num_end = scan;
+                while (scan > normalized_text && isdigit((unsigned char)*(scan - 1))) scan--;
+                if (num_end > scan) {
+                    /* Found preceding day number */
+                    date_off = (size_t)(scan - normalized_text);
+                    extract_phrase_around(scan, 32, date_buf, sizeof(date_buf));
+                } else {
+                    date_off = (size_t)(p - normalized_text);
+                    nib_strlcpy(date_buf, MONTHS[i], sizeof(date_buf));
+                }
+                has_date = true;
+                break;
+            }
+        }
+    }
+
+    /* Clock time */
+    bool has_time = extract_clock_time(normalized_text, time_buf, sizeof(time_buf), &time_off);
+
+    /* Assemble datetime string */
+    if (has_date && has_time) {
+        snprintf(out_info->datetime_str, sizeof(out_info->datetime_str), "%s %s", date_buf, time_buf);
+        add_entity_item(out_info, NIBRAS_ENTITY_DATETIME, "DATETIME", out_info->datetime_str, date_off);
+    } else if (has_date) {
+        nib_strlcpy(out_info->datetime_str, date_buf, sizeof(out_info->datetime_str));
+        add_entity_item(out_info, NIBRAS_ENTITY_DATETIME, "DATE", out_info->datetime_str, date_off);
+    } else if (has_time) {
+        nib_strlcpy(out_info->datetime_str, time_buf, sizeof(out_info->datetime_str));
+        add_entity_item(out_info, NIBRAS_ENTITY_DATETIME, "TIME", out_info->datetime_str, time_off);
+    }
+
+    /* 5. Detect Valence */
+    int pos_hits = 0;
+    int neg_hits = 0;
+    for (int i = 0; POSITIVE_WORDS[i] != NULL; ++i) {
+        if (strstr(normalized_text, POSITIVE_WORDS[i])) pos_hits++;
+    }
+    for (int i = 0; NEGATIVE_WORDS[i] != NULL; ++i) {
+        if (strstr(normalized_text, NEGATIVE_WORDS[i])) neg_hits++;
+    }
+    if (pos_hits > neg_hits) {
+        out_info->suggested_valence = 1;
+    } else if (neg_hits > pos_hits) {
+        out_info->suggested_valence = -1;
+    } else {
+        out_info->suggested_valence = 0;
+    }
+
+    /* 6. Salience ($I_0$) Assignment */
+    if (out_info->is_executive_decision) {
+        out_info->suggested_salience = 0.95;
+        out_info->suggest_pin = true;
+        if (out_info->suggested_valence == 0) out_info->suggested_valence = 1;
+    } else if (out_info->is_appointment) {
+        out_info->suggested_salience = 0.90;
+    } else if (out_info->is_action_item) {
+        out_info->suggested_salience = 0.80;
+    } else if (out_info->datetime_str[0] != '\0') {
+        out_info->suggested_salience = 0.60;
+    } else {
+        out_info->suggested_salience = 0.35; /* Everyday operational chatter */
+    }
+
+    return out_info->entity_count;
+}
+
 #ifdef NIBRAS_STANDALONE_TEST
 #include <assert.h>
 
@@ -283,7 +561,58 @@ int main(void) {
     assert(snap.distilled_rules_count == 1);
     assert(snap.tokens_saved_pct >= 85);
 
-    printf("[PASS] All Nibras C99 Hardened Arabic Normalizer & FadeMem tests passed! (Tokens saved: %u%%)\n", snap.tokens_saved_pct);
+    /* Test 3: Pinned Permanent Node Preservation */
+    nibras_memory_node_t pinned_test_nodes[2] = {
+        {
+            .id = 201,
+            .summary = "Pinned statutory compliance policy",
+            .valence = 1,
+            .initial_intensity = 0.95,
+            .current_intensity = 0.95,
+            .created_utc = 1792600000ULL,
+            .token_cost = 600,
+            .is_pinned = true,
+            .state = TRAJ_ACTIVE_EPISODIC
+        },
+        {
+            .id = 202,
+            .summary = "Casual team lunch chat",
+            .valence = 0,
+            .initial_intensity = 0.35,
+            .current_intensity = 0.35,
+            .created_utc = 1792600000ULL,
+            .token_cost = 400,
+            .is_pinned = false,
+            .state = TRAJ_ACTIVE_EPISODIC
+        }
+    };
+    nibras_telemetry_snapshot_t snap2;
+    nibras_fademem_step_hardened(
+        pinned_test_nodes, 2, 1792600000ULL + (30 * 86400ULL), 86400.0, 1.0, 3 * 86400.0, &snap2
+    );
+    assert(pinned_test_nodes[0].is_pinned == true);
+    assert(pinned_test_nodes[0].state == TRAJ_DISTILLED_RULE);
+    assert(pinned_test_nodes[0].current_intensity == 1.0);
+    assert(pinned_test_nodes[1].state == TRAJ_NOISE_PRUNED);
+    assert(pinned_test_nodes[1].current_intensity < 0.25);
+
+    /* Test 4: Deterministic Arabic Entity & Action Extraction */
+    const char *exec_text = "اجتماع مع رئيس هيئة الصحة بدبي غداً الساعة 10 صباحاً لمراجعة السياسة";
+    char norm_exec[256];
+    arabic_normalize_utf8_hardened(exec_text, norm_exec, sizeof(norm_exec));
+
+    nibras_extracted_info_t info;
+    size_t count = nibras_extract_arabic_entities(norm_exec, &info);
+    assert(count > 0);
+    assert(info.is_appointment == true);
+    assert(info.is_action_item == true);
+    assert(info.is_executive_decision == true);
+    assert(info.suggest_pin == true);
+    assert(info.suggested_salience >= 0.90);
+    assert(strstr(info.datetime_str, "غدا") != NULL);
+    assert(strstr(info.datetime_str, "الساعه 10 صباحا") != NULL);
+
+    printf("[PASS] All Nibras C99 Hardened Arabic Normalizer, Entity Extractor & FadeMem tests passed! (Tokens saved: %u%%)\n", snap.tokens_saved_pct);
     return 0;
 }
 #endif

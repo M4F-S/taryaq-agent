@@ -987,6 +987,11 @@ static bool taryaq_commit_audit(const char *audit_path, bool enable_telemetry) {
 /* ========================================================================= */
 
 static int run_test_scenario(const char *audit_path, bool enable_telemetry) {
+    /* Self-test only: isolate the single-use ledger so reruns are idempotent
+     * and the production ledger is never touched. */
+    qala_set_token_store_path("build/taryaq_test_tokens.jsonl");
+    (void)remove("build/taryaq_test_tokens.jsonl");
+
     double t_start = taryaq_get_monotonic_ms();
 
     /* Ensure test key is active if not set in environment */

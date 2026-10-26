@@ -72,7 +72,7 @@ verify: test audit-verify
 
 clean:
 	rm -rf $(BUILD_DIR)
-	rm -f taryaq_audit.jsonl qala-audit.jsonl *.audit.jsonl *.tokens.jsonl *.jsonl
+	rm -f taryaq_audit.jsonl qala-audit.jsonl
 	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete 2>/dev/null || true
 

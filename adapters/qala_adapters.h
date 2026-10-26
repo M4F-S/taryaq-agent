@@ -18,7 +18,7 @@ typedef enum {
     VERDICT_SAFE            = 0, /* Safe to execute immediately */
     VERDICT_CAUTION         = 1, /* Low-risk warning logged; execution permitted */
     VERDICT_REVIEW          = 2, /* Gated mutation: requires single-use approval code */
-    VERDICT_UNSAFE          = 3, /* Hard block: Landlock / DESC ISR v3 violation */
+    VERDICT_UNSAFE          = 3, /* Hard block: Workspace containment / DESC ISR v3 violation */
     VERDICT_AUTH_BLK        = 4, /* Upstream credential missing or expired */
     VERDICT_HALLUCINATION   = 5, /* Grounding Shield blocked unverified/hallucinated claim */
     VERDICT_ERROR           = 6  /* Malformed tool arguments or transport fault */
@@ -81,6 +81,29 @@ int mcp_stateless_build_request(
     const char *mcp_method,
     const char *jsonrpc_params,
     uint64_t    request_id
+);
+
+/* DESC ISR v3.1 Workspace Sandboxing Configuration */
+void        qala_set_workspace_root(const char *root);
+const char *qala_get_workspace_root(void);
+
+/* Persistent Dual-Key Single-Use Approval Token Store */
+/* Callers should call qala_set_token_store_path() at startup; otherwise the ledger is written relative to the working directory. */
+void        qala_set_token_store_path(const char *path);
+const char *qala_get_token_store_path(void);
+bool        qala_token_store_is_consumed(const char *store_path, const char *token);
+int         qala_token_store_record_consumed(
+    const char *store_path,
+    const char *token,
+    const char *scope,
+    const char *tool_name,
+    double      amount_aed,
+    uint64_t    consumed_utc
+);
+int         qala_token_store_sync_slots(
+    const char           *store_path,
+    qala_approval_slot_t *slots,
+    size_t                slot_count
 );
 
 #ifdef __cplusplus
