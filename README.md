@@ -31,6 +31,12 @@ The core engine is built in ISO C99 with zero external network dependencies:
   - Chronological eGFR progression and CKD staging with ASCII trajectory visualization (`timeline <patient_id>`).
   - History-aware repeat override escalation (`is_repeat_override` flag) that flags recurrent overrides for identical drug-drug interactions.
   - Interactive demonstration with 6 realistic clinical encounters (`make timeline-demo`).
+- **Deterministic Clinical RAG & DHA Statutory Grounding Engine (`adapters/taryaq_rag_engine.c`, `corpus/`):**
+  Air-gapped SQLite FTS5 BM25 retrieval engine over DHA Standards Notice SN 03/2019, sovereign drug monographs, and UAE Federal Law No. 30 of 2021 schedules:
+  - Corrects claim cycle penalty calculation to enforce the statutory 30-day window: $\max(0, \text{days} - 30) \times 0.03\% \times \text{Net Claim}$.
+  - Cites `doc_id`, `section`, and cryptographic `passage_sha256` on every verdict.
+  - Hard-blocks any prescription or claim referencing a corrupted or tampered passage hash.
+  - Interactive statutory query demonstration via `make rag-demo`.
 - **HMAC-SHA256 Cryptographic Audit Chaining (`src/taryaq_agent.c`, `tools/verify_audit.py`):**
   Every audit record is cryptographically linked to the previous record's MAC:
   $$\text{MAC}_i = \text{HMAC-SHA256}(K, \text{MAC}_{i-1} \parallel \text{"\\n"} \parallel \text{canonical}_i)$$
@@ -81,6 +87,9 @@ make audit-verify
 
 # Run realistic 6-encounter longitudinal timeline demo with CKD progression
 make timeline-demo
+
+# Run Clinical RAG & DHA statutory grounding demo
+make rag-demo
 
 # Run complete acceptance and audit verification
 make verify

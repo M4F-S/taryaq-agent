@@ -12,6 +12,7 @@
 #include <ctype.h>
 
 #include "taryaq_adapters.h"
+#include "taryaq_rag_engine.h"
 
 /* Case-insensitive substring search for C99 portability */
 static bool strcasestr_c99(const char *haystack, const char *needle) {
@@ -148,6 +149,9 @@ taryaq_result_t taryaq_verify_prescription_and_claim(const taryaq_rx_context_t *
             snprintf(res.alert_code, sizeof(res.alert_code), "%s", "FATAL_CYP3A4_RENAL_CONTRAINDICATION");
             snprintf(res.clinical_rationale, sizeof(res.clinical_rationale), "%s",
                      "Blocked: Concurrent Colchicine + Clarithromycin in renal impairment (eGFR < 60) causes fatal toxicity due to CYP3A4/P-gp inhibition.");
+            snprintf(res.doc_id, sizeof(res.doc_id), "%s", "DRUG_COLCHICINE_MONOGRAPH");
+            snprintf(res.section, sizeof(res.section), "%s", "COLCHICINE_MONOGRAPH");
+            snprintf(res.passage_sha256, sizeof(res.passage_sha256), "%s", DRUG_COLCHICINE_SHA256);
             return res;
         }
 
@@ -157,6 +161,9 @@ taryaq_result_t taryaq_verify_prescription_and_claim(const taryaq_rx_context_t *
             snprintf(res.alert_code, sizeof(res.alert_code), "%s", "FATAL_CYP3A4_RHABDOMYOLYSIS_CONTRAINDICATION");
             snprintf(res.clinical_rationale, sizeof(res.clinical_rationale), "%s",
                      "Blocked: Concurrent Simvastatin and Clarithromycin (potent CYP3A4 inhibitor) is contraindicated due to fatal rhabdomyolysis and acute kidney injury risk (FDA Boxed Warning).");
+            snprintf(res.doc_id, sizeof(res.doc_id), "%s", "DRUG_SIMVASTATIN_MONOGRAPH");
+            snprintf(res.section, sizeof(res.section), "%s", "SIMVASTATIN_MONOGRAPH");
+            snprintf(res.passage_sha256, sizeof(res.passage_sha256), "%s", DRUG_SIMVASTATIN_SHA256);
             return res;
         }
 
@@ -166,6 +173,9 @@ taryaq_result_t taryaq_verify_prescription_and_claim(const taryaq_rx_context_t *
             snprintf(res.alert_code, sizeof(res.alert_code), "%s", "WARFARIN_AMIODARONE_HEMORRHAGE_RISK");
             snprintf(res.clinical_rationale, sizeof(res.clinical_rationale), "%s",
                      "Blocked: Concurrent Warfarin + Amiodarone inhibits CYP2C9/3A4 causing extreme INR elevation and fatal hemorrhage risk; requires documented dose reduction and INR protocol.");
+            snprintf(res.doc_id, sizeof(res.doc_id), "%s", "DRUG_WARFARIN_MONOGRAPH");
+            snprintf(res.section, sizeof(res.section), "%s", "WARFARIN_MONOGRAPH");
+            snprintf(res.passage_sha256, sizeof(res.passage_sha256), "%s", DRUG_WARFARIN_SHA256);
             return res;
         }
 
@@ -175,6 +185,9 @@ taryaq_result_t taryaq_verify_prescription_and_claim(const taryaq_rx_context_t *
             snprintf(res.alert_code, sizeof(res.alert_code), "%s", "METFORMIN_SEVERE_RENAL_CUTOFF_EGFR_LT_30");
             snprintf(res.clinical_rationale, sizeof(res.clinical_rationale), "%s",
                      "Blocked: Metformin is contraindicated in severe renal impairment (eGFR < 30 mL/min) due to fatal lactic acidosis risk.");
+            snprintf(res.doc_id, sizeof(res.doc_id), "%s", "DRUG_METFORMIN_MONOGRAPH");
+            snprintf(res.section, sizeof(res.section), "%s", "METFORMIN_MONOGRAPH");
+            snprintf(res.passage_sha256, sizeof(res.passage_sha256), "%s", DRUG_METFORMIN_SHA256);
             return res;
         }
 
@@ -184,6 +197,9 @@ taryaq_result_t taryaq_verify_prescription_and_claim(const taryaq_rx_context_t *
             snprintf(res.alert_code, sizeof(res.alert_code), "%s", "METFORMIN_CKD_STAGE_3B_DOSE_REDUCTION_REQUIRED");
             snprintf(res.clinical_rationale, sizeof(res.clinical_rationale), "%s",
                      "Clinical Review: Metformin in CKD Stage 3b requires dose reduction (max 1000 mg/day) and renal function monitoring every 3 months.");
+            snprintf(res.doc_id, sizeof(res.doc_id), "%s", "DRUG_METFORMIN_MONOGRAPH");
+            snprintf(res.section, sizeof(res.section), "%s", "METFORMIN_MONOGRAPH");
+            snprintf(res.passage_sha256, sizeof(res.passage_sha256), "%s", DRUG_METFORMIN_SHA256);
             return res;
         }
 
@@ -225,16 +241,32 @@ taryaq_result_t taryaq_verify_prescription_and_claim(const taryaq_rx_context_t *
         snprintf(res.alert_code, sizeof(res.alert_code), "%s", "UAE_CONTROLLED_RX_VERIFICATION_REQUIRED");
         snprintf(res.clinical_rationale, sizeof(res.clinical_rationale), "%s",
                  "Hold: Controlled medication requires verified Emirates ID, dosage ceiling verification, and pharmacist co-signature.");
+        snprintf(res.doc_id, sizeof(res.doc_id), "%s", "UAE_LAW_30_2021");
+        snprintf(res.section, sizeof(res.section), "%s", "SCHEDULE_IV_CONTROLLED");
+        snprintf(res.passage_sha256, sizeof(res.passage_sha256), "%s", UAE_LAW_30_2021_SHA256);
         return res;
     }
 
     /* 3. DHA eClaimLink & Ejadah Scrubber (SN 03/2019 Statutory Late Penalty) */
-    if (rx->submission_delay_days > 0) {
+    /* Statutory 30-day window: calculate overdue days = max(0, submission_days - 30) */
+    uint32_t overdue_days = (rx->submission_delay_days > 30) ? (rx->submission_delay_days - 30) : 0;
+    if (overdue_days > 0) {
         res.verdict = CLINICAL_CLAIM_CYCLE_WARN;
         snprintf(res.alert_code, sizeof(res.alert_code), "%s", "DHA_SN03_2019_DELAY_PENALTY_EXPOSURE");
         snprintf(res.clinical_rationale, sizeof(res.clinical_rationale),
-                 "Claim Cycle Warning: Submission is %u day(s) overdue past statutory 30-day window under DHA SN 03/2019; subject to 0.03%%/day delay penalty (%.4f%%).",
-                 rx->submission_delay_days, (double)rx->submission_delay_days * 0.03);
+                 "Claim Cycle Warning: Submission is %u day(s) overdue past statutory 30-day window (%u total days) under DHA SN 03/2019; subject to 0.03%%/day delay penalty (%.4f%%).",
+                 overdue_days, rx->submission_delay_days, (double)overdue_days * 0.03);
+
+        taryaq_rag_hit_t hit;
+        if (taryaq_rag_lookup_clause("DHA_SN_03_2019", "§3.7.2", &hit)) {
+            snprintf(res.doc_id, sizeof(res.doc_id), "%s", hit.doc_id);
+            snprintf(res.section, sizeof(res.section), "%s", hit.section);
+            snprintf(res.passage_sha256, sizeof(res.passage_sha256), "%s", hit.passage_sha256);
+        } else {
+            snprintf(res.doc_id, sizeof(res.doc_id), "%s", "DHA_SN_03_2019");
+            snprintf(res.section, sizeof(res.section), "%s", "§3.7.2");
+            snprintf(res.passage_sha256, sizeof(res.passage_sha256), "%s", DHA_SN03_2019_SEC_3_7_2_SHA256);
+        }
         return res;
     }
 
@@ -252,6 +284,9 @@ taryaq_result_t taryaq_verify_prescription_and_claim(const taryaq_rx_context_t *
     res.verdict = CLINICAL_SAFE;
     snprintf(res.alert_code, sizeof(res.alert_code), "%s", "DHA_NABIDH_SAFE");
     snprintf(res.clinical_rationale, sizeof(res.clinical_rationale), "%s", "Pharmacovigilance and DHA Ejadah claim checks passed.");
+    snprintf(res.doc_id, sizeof(res.doc_id), "%s", "DHA_SN_03_2019");
+    snprintf(res.section, sizeof(res.section), "%s", "§3.7.1");
+    snprintf(res.passage_sha256, sizeof(res.passage_sha256), "%s", DHA_SN03_2019_SEC_3_7_1_SHA256);
     return res;
 }
 
@@ -567,7 +602,7 @@ int main(void) {
     assert(r2.verdict == CLINICAL_CONTROLLED_DRUG_GATE);
     assert(strcmp(r2.alert_code, "UAE_CONTROLLED_RX_VERIFICATION_REQUIRED") == 0);
 
-    /* Test 3: DHA SN 03/2019 Claim Submission delayed past deadline -> CLAIM_CYCLE_WARN */
+    /* Test 3: DHA SN 03/2019 Claim Submission delayed past statutory 30-day window (42 days = 12 overdue) -> CLAIM_CYCLE_WARN */
     taryaq_rx_context_t delayed_claim = {
         .primary_drug = "Metformin",
         .concurrent_drug = NULL,
@@ -575,19 +610,25 @@ int main(void) {
         .is_controlled_substance = false,
         .has_controlled_id_verified = false,
         .icd10_code = "E11.9",
-        .submission_delay_days = 12,
+        .submission_delay_days = 42,
         .has_ejadah_lab_justification = true,
         .has_clinician_override = false
     };
     taryaq_result_t r3 = taryaq_verify_prescription_and_claim(&delayed_claim);
     assert(r3.verdict == CLINICAL_CLAIM_CYCLE_WARN);
     assert(strcmp(r3.alert_code, "DHA_SN03_2019_DELAY_PENALTY_EXPOSURE") == 0);
+    assert(strcmp(r3.doc_id, "DHA_SN_03_2019") == 0);
+    assert(strcmp(r3.section, "§3.7.2") == 0);
+    assert(strcmp(r3.passage_sha256, DHA_SN03_2019_SEC_3_7_2_SHA256) == 0);
 
-    /* Test 4: Fully compliant claim -> SAFE */
-    delayed_claim.submission_delay_days = 0;
+    /* Test 4: Claim within statutory 30-day window (20 days) -> SAFE */
+    delayed_claim.submission_delay_days = 20;
     taryaq_result_t r4 = taryaq_verify_prescription_and_claim(&delayed_claim);
     assert(r4.verdict == CLINICAL_SAFE);
     assert(strcmp(r4.alert_code, "DHA_NABIDH_SAFE") == 0);
+    assert(strcmp(r4.doc_id, "DHA_SN_03_2019") == 0);
+    assert(strcmp(r4.section, "§3.7.1") == 0);
+    assert(strcmp(r4.passage_sha256, DHA_SN03_2019_SEC_3_7_1_SHA256) == 0);
 
     /* Test 5: Metformin in severe renal impairment (eGFR 26 < 30) -> CONTRAINDICATION_BLOCK */
     taryaq_rx_context_t metformin_renal = {

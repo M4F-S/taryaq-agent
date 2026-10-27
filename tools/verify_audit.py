@@ -111,10 +111,10 @@ def verify_ledger(ledger_path: str, key_str: str) -> None:
             parts = canonical.split("|")
             action = rec.get("action")
             if action == "PRESCRIPTION_COMMITTED":
-                if len(parts) != 13:
+                if len(parts) != 13 and len(parts) != 16:
                     sys.stderr.write(
                         f"[-] Line {line_num}: Canonical payload field count mismatch for {action} "
-                        f"(expected 13, got {len(parts)})\n"
+                        f"(expected 13 or 16, got {len(parts)})\n"
                     )
                     sys.exit(1)
 
@@ -151,6 +151,54 @@ def verify_ledger(ledger_path: str, key_str: str) -> None:
                         f"[-] Line {line_num}: Field tampering! alert_code '{rec['alert_code']}' != canonical '{parts[7]}'\n"
                     )
                     sys.exit(1)
+
+                if len(parts) == 16:
+                    doc_id = parts[13]
+                    sec = parts[14]
+                    hsh = parts[15]
+                    if "statutory_doc_id" in rec and rec["statutory_doc_id"] != doc_id:
+                        sys.stderr.write(
+                            f"[-] Line {line_num}: Field tampering! statutory_doc_id '{rec['statutory_doc_id']}' != canonical '{doc_id}'\n"
+                        )
+                        sys.exit(1)
+                    if "statutory_section" in rec and rec["statutory_section"] != sec:
+                        sys.stderr.write(
+                            f"[-] Line {line_num}: Field tampering! statutory_section '{rec['statutory_section']}' != canonical '{sec}'\n"
+                        )
+                        sys.exit(1)
+                    if "statutory_passage_sha256" in rec and rec["statutory_passage_sha256"].lower() != hsh.lower():
+                        sys.stderr.write(
+                            f"[-] Line {line_num}: Field tampering! statutory_passage_sha256 '{rec['statutory_passage_sha256']}' != canonical '{hsh}'\n"
+                        )
+                        sys.exit(1)
+
+                # Verify statutory passage hash against corpus manifest
+                if "statutory_passage_sha256" in rec and rec["statutory_passage_sha256"]:
+                    manifest_path = os.path.join(
+                        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "corpus",
+                        "manifest.json"
+                    )
+                    if os.path.exists(manifest_path):
+                        try:
+                            with open(manifest_path, "r", encoding="utf-8") as mf:
+                                mdata = json.load(mf)
+                            rec_doc = rec.get("statutory_doc_id", "")
+                            rec_sec = rec.get("statutory_section", "")
+                            rec_hsh = rec.get("statutory_passage_sha256", "").lower()
+                            matched_hash = None
+                            for ch in mdata.get("chunks", {}).values():
+                                if ch.get("doc_id") == rec_doc and ch.get("section") == rec_sec:
+                                    matched_hash = ch.get("passage_sha256", "").lower()
+                                    break
+                            if matched_hash and rec_hsh != matched_hash:
+                                sys.stderr.write(
+                                    f"[-] Line {line_num}: Cryptographic tampering detected! "
+                                    f"statutory_passage_sha256 '{rec_hsh}' does not match corpus manifest '{matched_hash}'\n"
+                                )
+                                sys.exit(1)
+                        except Exception:
+                            pass
 
             elif action == "PRESCRIPTION_ROLLED_BACK":
                 if len(parts) != 8:

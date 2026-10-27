@@ -40,6 +40,9 @@ typedef struct {
     taryaq_verdict_t verdict;
     char             alert_code[64];
     char             clinical_rationale[256];
+    char             doc_id[64];             /* Statutory or clinical provenance document */
+    char             section[64];            /* Specific section/clause (e.g. §3.7.2) */
+    char             passage_sha256[65];     /* Cryptographic SHA-256 hash of authoritative clause */
 } taryaq_result_t;
 
 /* Patient Care Companion: Emergency Red-Flag Triage Engine */

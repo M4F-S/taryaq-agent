@@ -52,6 +52,9 @@ class TaryaqResult(ctypes.Structure):
         ("verdict", ctypes.c_int),
         ("alert_code", ctypes.c_char * 64),
         ("clinical_rationale", ctypes.c_char * 256),
+        ("doc_id", ctypes.c_char * 64),
+        ("section", ctypes.c_char * 64),
+        ("passage_sha256", ctypes.c_char * 65),
     ]
 
 

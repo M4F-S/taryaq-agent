@@ -1,0 +1,39 @@
+# DOCUMENT: DRUG_MONOGRAPHS_SOVEREIGN_CATALOG
+# TITLE: Sovereign Pharmacovigilance Drug Monographs - Nine Core Compounds
+# AUTHORITY: FDA Boxed Warnings, BNF 84, KDIGO 2024, EMA SmPC Standards
+
+[SECTION: COLCHICINE_MONOGRAPH]
+[TITLE: Colchicine Pharmacokinetics and CYP3A4/P-gp Interactions]
+Colchicine is an alkaloid used for acute gout flares and familial Mediterranean fever. It is heavily metabolized by hepatic CYP3A4 and excreted via renal P-glycoprotein (P-gp) transport. Co-administration of potent dual CYP3A4 and P-gp inhibitors such as Clarithromycin in patients with renal impairment (eGFR < 60 mL/min) is strictly contraindicated due to rapid accumulation leading to fatal multiorgan failure, severe neuromyopathy, and bone marrow aplasia (FDA Boxed Warning).
+
+[SECTION: CLARITHROMYCIN_MONOGRAPH]
+[TITLE: Clarithromycin Macrolide Safety and Interaction Profile]
+Clarithromycin is a macrolide antibiotic and potent mechanism-based inhibitor of CYP3A4 and P-glycoprotein. Concomitant administration with Colchicine under renal impairment is contraindicated. Concomitant administration with Simvastatin is strictly contraindicated due to profound elevation of statin AUC (>10-fold) precipitating acute rhabdomyolysis and myoglobinuric acute kidney injury.
+
+[SECTION: METFORMIN_MONOGRAPH]
+[TITLE: Metformin Renal Elimination and Lactic Acidosis Thresholds]
+Metformin is a biguanide antihyperglycemic agent eliminated unchanged via renal tubular secretion. In severe renal impairment (eGFR < 30 mL/min), metformin accumulation triggers life-threatening Metformin-Associated Lactic Acidosis (MALA), carrying a mortality rate exceeding 40%. Metformin is contraindicated at eGFR < 30 mL/min. In moderate CKD Stage 3b (eGFR 30 to 44 mL/min), dosage must be reduced to a maximum ceiling of 1000 mg daily with quarterly renal monitoring (KDIGO 2024).
+
+[SECTION: SIMVASTATIN_MONOGRAPH]
+[TITLE: Simvastatin Hepatic Metabolism and CYP3A4 Ceiling Rules]
+Simvastatin is an HMG-CoA reductase inhibitor substrate of CYP3A4. Strong CYP3A4 inhibitors like clarithromycin, ketoconazole, and itraconazole are contraindicated due to severe rhabdomyolysis risk. When co-prescribed with moderate CYP3A4 inhibitors or calcium channel blockers like amlodipine, the maximum permissible daily dose of simvastatin is capped at 20 mg daily.
+
+[SECTION: WARFARIN_MONOGRAPH]
+[TITLE: Warfarin Anticoagulation and CYP2C9/3A4 Potentiation]
+Warfarin is a narrow therapeutic index oral anticoagulant existing as a racemic mixture. S-warfarin is metabolized by CYP2C9 while R-warfarin is cleared by CYP3A4 and CYP1A2. Concomitant administration with Amiodarone severely inhibits warfarin clearance, precipitating supra-therapeutic INR and fatal hemorrhagic complications; dose reduction and strict INR monitoring protocols are mandatory.
+
+[SECTION: AMIODARONE_MONOGRAPH]
+[TITLE: Amiodarone Class III Antiarrhythmic Multitarget Inhibition]
+Amiodarone is a multi-channel antiarrhythmic agent and potent inhibitor of CYP2C9, CYP2D6, CYP3A4, and P-glycoprotein. Due to its exceptionally long elimination half-life (up to 60 days), potentiation of warfarin anticoagulant effect persists for months following discontinuation.
+
+[SECTION: PARACETAMOL_MONOGRAPH]
+[TITLE: Paracetamol Analgesic Safety and Dosing Guidelines]
+Paracetamol (acetaminophen) is a non-opioid analgesic and antipyretic indicated for mild-to-moderate pain. Standard oral adult dosing is 500 to 1000 mg every 4 to 6 hours up to a maximum of 4000 mg in 24 hours. Concomitant administration with standard aminopenicillins like Amoxicillin is clinically verified safe with zero pharmacokinetic contraindication.
+
+[SECTION: AMOXICILLIN_MONOGRAPH]
+[TITLE: Amoxicillin Aminopenicillin Spectrum and Renal Safety]
+Amoxicillin is an extended-spectrum aminopenicillin indicated for respiratory, otolaryngologic, and dermatologic bacterial infections. It is cleared primarily through renal glomerular filtration and tubular secretion. Concomitant administration with Paracetamol represents a verified, safe standard outpatient therapeutic regimen.
+
+[SECTION: TRAMADOL_MONOGRAPH]
+[TITLE: Tramadol Synthetic Opioid and Controlled Classification]
+Tramadol is a centrally acting synthetic opioid analgesic and weak serotonin-norepinephrine reuptake inhibitor. Due to dependency, abuse liability, and respiratory depression risks, tramadol is scheduled as a controlled substance under UAE Federal Law No. 30 of 2021. Dispensing requires verified Emirates ID, daily dosage ceiling checks, and pharmacist co-signature.

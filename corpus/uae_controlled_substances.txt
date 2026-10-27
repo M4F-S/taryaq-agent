@@ -1,0 +1,7 @@
+# DOCUMENT: UAE_LAW_30_2021
+# TITLE: UAE Federal Decree Law No. 30 of 2021 on Combating Narcotics and Psychotropic Substances
+# AUTHORITY: UAE Ministry of Health and Prevention (MOHAP) / Dubai Health Authority (DHA)
+
+[SECTION: SCHEDULE_IV_CONTROLLED]
+[TITLE: Controlled and Semi-Controlled Substance Dispensing Protocol]
+All narcotics, psychotropics, and controlled medications (including Morphine, Tramadol, Fentanyl, Oxycodone, Ketamine, Buprenorphine, Methadone, Diazepam, Lorazepam, and Alprazolam) are governed by strict dispensing protocols. Outpatient dispensing requires verified patient Emirates ID or passport, electronic registration in the sovereign prescription monitoring system, adherence to authorized maximum posology ceilings, and physical or biometric co-signature of the licensed dispensing clinical pharmacist. Prescriptions for Schedule IV substances expire within three (3) calendar days of issuance.

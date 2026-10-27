@@ -1,0 +1,138 @@
+{
+  "version": "1.0",
+  "description": "Taryaq Sovereign Clinical & DHA Statutory Corpus Manifest",
+  "documents": {
+    "DHA_SN_03_2019": {
+      "file": "dha_sn_03_2019.txt",
+      "title": "Dubai Health Authority Standards Notice SN 03/2019 - Payment Rules and Claim Timelines",
+      "sha256": "026eba35fbde48f323d5561da30e63be0059d233db389044f0005b4e1a032411",
+      "chunk_count": 6
+    },
+    "DRUG_MONOGRAPHS_SOVEREIGN_CATALOG": {
+      "file": "drug_monographs.txt",
+      "title": "Sovereign Pharmacovigilance Drug Monographs - Nine Core Compounds",
+      "sha256": "b07de9e7e0495bbbbf4471822b06878a3db1f5c0e8c37cb15e2af11251a12359",
+      "chunk_count": 9
+    },
+    "UAE_LAW_30_2021": {
+      "file": "uae_controlled_substances.txt",
+      "title": "UAE Federal Decree Law No. 30 of 2021 on Combating Narcotics and Psychotropic Substances",
+      "sha256": "fa69f2d0ec5a70ecfab8f13fb0e872f184bb2e95e96ef5a7ac3d41c3a8165774",
+      "chunk_count": 1
+    }
+  },
+  "chunks": {
+    "DHA_SN_03_2019_3_7_1": {
+      "doc_id": "DHA_SN_03_2019",
+      "section": "§3.7.1",
+      "title": "DHA SN 03/2019 Initial Claim Submission Deadline",
+      "passage_sha256": "b0a422ad0e2edc66290007caaa5508d4ec4ac4229453b170881fb482449218f3",
+      "passage_preview": "Healthcare providers licensed in the Emirate of Dubai must submit all initial outpatient claims to the Dubai Health Post..."
+    },
+    "DHA_SN_03_2019_3_7_2": {
+      "doc_id": "DHA_SN_03_2019",
+      "section": "§3.7.2",
+      "title": "DHA SN 03/2019 Initial Submission Delay Penalty Exposure",
+      "passage_sha256": "35bd39f8756297aaf921e2e2720f30c7e9ceac5f524646d40fd0601298089a5a",
+      "passage_preview": "Healthcare providers must submit all outpatient claims to the Dubai Health Post Office (eClaimLink / DHA) within the sta..."
+    },
+    "DHA_SN_03_2019_3_8_1": {
+      "doc_id": "DHA_SN_03_2019",
+      "section": "§3.8.1",
+      "title": "Resubmission Timelines",
+      "passage_sha256": "4c01fbba6a5b0d4e49f878501cf6606466e18fe6ea1671d455b728bfa8cd0331",
+      "passage_preview": "Healthcare providers may resubmit rejected or partially paid claims within a statutory window of 21 calendar days from t..."
+    },
+    "DHA_SN_03_2019_3_8_2": {
+      "doc_id": "DHA_SN_03_2019",
+      "section": "§3.8.2",
+      "title": "Maximum Number of Resubmissions",
+      "passage_sha256": "eec3c113dbc94dce7c8850ad72a3c4044ddfa9aa2b20c2be4c2e0ed8596878b0",
+      "passage_preview": "A maximum of two (2) resubmissions are permitted per claim line. Any third resubmission attempt is barred administrative..."
+    },
+    "DHA_SN_03_2019_3_8_4": {
+      "doc_id": "DHA_SN_03_2019",
+      "section": "§3.8.4",
+      "title": "Resubmission Delay Penalty Exposure",
+      "passage_sha256": "f3116079c47127f44dd87694a901a495ad0b0e4423989fa55f836b638750a4b8",
+      "passage_preview": "Resubmissions uploaded past the statutory 21-calendar-day window are subject to a statutory delay penalty of 0.03% of th..."
+    },
+    "DHA_SN_03_2019_3_9_3": {
+      "doc_id": "DHA_SN_03_2019",
+      "section": "§3.9.3",
+      "title": "Payer Remittance Settlement Delay Fee",
+      "passage_sha256": "dedc5aa6493c4fa56a40e596ebf0d0a3024ca6f4269f512dd7192557167dd32f",
+      "passage_preview": "Insurers and Third-Party Administrators (TPAs) operating in the Emirate of Dubai must settle clean claims within statuto..."
+    },
+    "DRUG_MONOGRAPHS_SOVEREIGN_CATALOG_COLCHICINE_MONOGRAPH": {
+      "doc_id": "DRUG_MONOGRAPHS_SOVEREIGN_CATALOG",
+      "section": "COLCHICINE_MONOGRAPH",
+      "title": "Colchicine Pharmacokinetics and CYP3A4/P-gp Interactions",
+      "passage_sha256": "8bab2c0a6b1b286e3b4979cd1afe2734fa376c889234ca85c314db1becbeb3f3",
+      "passage_preview": "Colchicine is an alkaloid used for acute gout flares and familial Mediterranean fever. It is heavily metabolized by hepa..."
+    },
+    "DRUG_MONOGRAPHS_SOVEREIGN_CATALOG_CLARITHROMYCIN_MONOGRAPH": {
+      "doc_id": "DRUG_MONOGRAPHS_SOVEREIGN_CATALOG",
+      "section": "CLARITHROMYCIN_MONOGRAPH",
+      "title": "Clarithromycin Macrolide Safety and Interaction Profile",
+      "passage_sha256": "a98515f6744d9120881b57ae7228b6cfe21b7d5349570feaebaa06c1ae5174c0",
+      "passage_preview": "Clarithromycin is a macrolide antibiotic and potent mechanism-based inhibitor of CYP3A4 and P-glycoprotein. Concomitant ..."
+    },
+    "DRUG_MONOGRAPHS_SOVEREIGN_CATALOG_METFORMIN_MONOGRAPH": {
+      "doc_id": "DRUG_MONOGRAPHS_SOVEREIGN_CATALOG",
+      "section": "METFORMIN_MONOGRAPH",
+      "title": "Metformin Renal Elimination and Lactic Acidosis Thresholds",
+      "passage_sha256": "9fda4e8fee4a0b07e56318c2e7713cdb8998b75cac2d2993e201500ae67f295d",
+      "passage_preview": "Metformin is a biguanide antihyperglycemic agent eliminated unchanged via renal tubular secretion. In severe renal impai..."
+    },
+    "DRUG_MONOGRAPHS_SOVEREIGN_CATALOG_SIMVASTATIN_MONOGRAPH": {
+      "doc_id": "DRUG_MONOGRAPHS_SOVEREIGN_CATALOG",
+      "section": "SIMVASTATIN_MONOGRAPH",
+      "title": "Simvastatin Hepatic Metabolism and CYP3A4 Ceiling Rules",
+      "passage_sha256": "02994de0d776fcf365fbce8f8b190e037a5a4bc8bbe6a961e0af5dd72a3eb329",
+      "passage_preview": "Simvastatin is an HMG-CoA reductase inhibitor substrate of CYP3A4. Strong CYP3A4 inhibitors like clarithromycin, ketocon..."
+    },
+    "DRUG_MONOGRAPHS_SOVEREIGN_CATALOG_WARFARIN_MONOGRAPH": {
+      "doc_id": "DRUG_MONOGRAPHS_SOVEREIGN_CATALOG",
+      "section": "WARFARIN_MONOGRAPH",
+      "title": "Warfarin Anticoagulation and CYP2C9/3A4 Potentiation",
+      "passage_sha256": "5be86800f5e901b3ab6cdcc99c164636b3cb78ae35ac13ac5bc65c0c1bd88994",
+      "passage_preview": "Warfarin is a narrow therapeutic index oral anticoagulant existing as a racemic mixture. S-warfarin is metabolized by CY..."
+    },
+    "DRUG_MONOGRAPHS_SOVEREIGN_CATALOG_AMIODARONE_MONOGRAPH": {
+      "doc_id": "DRUG_MONOGRAPHS_SOVEREIGN_CATALOG",
+      "section": "AMIODARONE_MONOGRAPH",
+      "title": "Amiodarone Class III Antiarrhythmic Multitarget Inhibition",
+      "passage_sha256": "2862a1d09beb9677c182db4aa211cbf4edc60fc1b06e93884b3fc28fe92ee0b4",
+      "passage_preview": "Amiodarone is a multi-channel antiarrhythmic agent and potent inhibitor of CYP2C9, CYP2D6, CYP3A4, and P-glycoprotein. D..."
+    },
+    "DRUG_MONOGRAPHS_SOVEREIGN_CATALOG_PARACETAMOL_MONOGRAPH": {
+      "doc_id": "DRUG_MONOGRAPHS_SOVEREIGN_CATALOG",
+      "section": "PARACETAMOL_MONOGRAPH",
+      "title": "Paracetamol Analgesic Safety and Dosing Guidelines",
+      "passage_sha256": "40b9f1b7e3ba11ac9e14fede9388d55d2c2fe8fc811b4388db4e75f3604ac68d",
+      "passage_preview": "Paracetamol (acetaminophen) is a non-opioid analgesic and antipyretic indicated for mild-to-moderate pain. Standard oral..."
+    },
+    "DRUG_MONOGRAPHS_SOVEREIGN_CATALOG_AMOXICILLIN_MONOGRAPH": {
+      "doc_id": "DRUG_MONOGRAPHS_SOVEREIGN_CATALOG",
+      "section": "AMOXICILLIN_MONOGRAPH",
+      "title": "Amoxicillin Aminopenicillin Spectrum and Renal Safety",
+      "passage_sha256": "a9317dcc21bf69ddbbc2bbf7c3499cf8e59a4380d0f9d79a12a6ae9f8695bca7",
+      "passage_preview": "Amoxicillin is an extended-spectrum aminopenicillin indicated for respiratory, otolaryngologic, and dermatologic bacteri..."
+    },
+    "DRUG_MONOGRAPHS_SOVEREIGN_CATALOG_TRAMADOL_MONOGRAPH": {
+      "doc_id": "DRUG_MONOGRAPHS_SOVEREIGN_CATALOG",
+      "section": "TRAMADOL_MONOGRAPH",
+      "title": "Tramadol Synthetic Opioid and Controlled Classification",
+      "passage_sha256": "a15f29a4ff2e493d715e7cade52d623b9679f1ade40c4d7359efc2a72bd2e4f6",
+      "passage_preview": "Tramadol is a centrally acting synthetic opioid analgesic and weak serotonin-norepinephrine reuptake inhibitor. Due to d..."
+    },
+    "UAE_LAW_30_2021_SCHEDULE_IV_CONTROLLED": {
+      "doc_id": "UAE_LAW_30_2021",
+      "section": "SCHEDULE_IV_CONTROLLED",
+      "title": "Controlled and Semi-Controlled Substance Dispensing Protocol",
+      "passage_sha256": "e0d15014d33abf8dfd4e142648f7f470a515444d7c237fee4c198b434c0978a0",
+      "passage_preview": "All narcotics, psychotropics, and controlled medications (including Morphine, Tramadol, Fentanyl, Oxycodone, Ketamine, B..."
+    }
+  }
+}

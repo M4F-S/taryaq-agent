@@ -7,5 +7,6 @@ This product includes software derived from:
 
 Components:
   - adapters/taryaq_clinical_adapter.c
+  - adapters/taryaq_rag_engine.c
   - src/taryaq_agent.c
   - adapters/taryaq_gomaa_bridge.py

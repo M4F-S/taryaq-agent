@@ -1,0 +1,27 @@
+# DOCUMENT: DHA_SN_03_2019
+# TITLE: Dubai Health Authority Standards Notice SN 03/2019 - Payment Rules and Claim Timelines
+# AUTHORITY: Dubai Health Authority (DHA) / Dubai Health Post Office (eClaimLink / DHPO)
+
+[SECTION: §3.7.1]
+[TITLE: DHA SN 03/2019 Initial Claim Submission Deadline]
+Healthcare providers licensed in the Emirate of Dubai must submit all initial outpatient claims to the Dubai Health Post Office (eClaimLink / DHA) within the statutory 30-day window or by the 15th calendar day of the month following the date of service. Initial claims submitted within this window are processed without statutory penalty.
+
+[SECTION: §3.7.2]
+[TITLE: DHA SN 03/2019 Initial Submission Delay Penalty Exposure]
+Healthcare providers must submit all outpatient claims to the Dubai Health Post Office (eClaimLink / DHA) within the statutory 30-day window. Claims submitted past the statutory 30-day window from the date of service are subject to a statutory delay penalty of 0.03% of the Net Claimed amount per calendar day of delay calculated as max(0, submission_days - 30). Late submission penalties are deducted from payer remittances.
+
+[SECTION: §3.8.1]
+[TITLE: Resubmission Timelines]
+Healthcare providers may resubmit rejected or partially paid claims within a statutory window of 21 calendar days from the date of Remittance Advice issuance. Resubmissions must include supporting clinical documentation and corrective coding justifications.
+
+[SECTION: §3.8.2]
+[TITLE: Maximum Number of Resubmissions]
+A maximum of two (2) resubmissions are permitted per claim line. Any third resubmission attempt is barred administratively and must be written off unless a formal regulatory dispute is lodged with the Dubai Health Authority.
+
+[SECTION: §3.8.4]
+[TITLE: Resubmission Delay Penalty Exposure]
+Resubmissions uploaded past the statutory 21-calendar-day window are subject to a statutory delay penalty of 0.03% of the Net Claimed amount per calendar day of delay beyond day 21, deducted from the provider payout.
+
+[SECTION: §3.9.3]
+[TITLE: Payer Remittance Settlement Delay Fee]
+Insurers and Third-Party Administrators (TPAs) operating in the Emirate of Dubai must settle clean claims within statutory timelines. Unjustified delay in remittance settlement past statutory deadlines incurs a mandatory delay fee of 0.03% per calendar day payable to the healthcare provider.

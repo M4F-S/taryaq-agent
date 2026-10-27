@@ -3,7 +3,7 @@
 
 CC ?= cc
 CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O2 -Iadapters
-LDFLAGS ?= -lm -lcurl
+LDFLAGS ?= -lm -lcurl -lsqlite3
 
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
@@ -19,13 +19,17 @@ BIN = $(BUILD_DIR)/taryaq_agent
 LIB = $(BUILD_DIR)/libtaryaq.$(LIB_EXT)
 
 ADAPTER_SRCS = adapters/taryaq_clinical_adapter.c \
+               adapters/taryaq_rag_engine.c \
                adapters/grounding_shield.c \
                adapters/nibras_arabic_fademem_adapter.c \
                adapters/qala_mcp_policy_adapter.c
 
 export TARYAQ_AUDIT_KEY ?= test-key-32-bytes-minimum-000000
 
-all: $(BIN) $(LIB)
+all: corpus $(BIN) $(LIB)
+
+corpus:
+	python3 tools/build_corpus_index.py
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
@@ -34,13 +38,13 @@ $(BIN): src/taryaq_agent.c $(ADAPTER_SRCS) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) src/taryaq_agent.c $(ADAPTER_SRCS) $(LDFLAGS) -o $(BIN)
 
 $(LIB): $(ADAPTER_SRCS) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -fPIC $(SHARED_FLAGS) $(ADAPTER_SRCS) -lm -o $(LIB)
+	$(CC) $(CFLAGS) -fPIC $(SHARED_FLAGS) $(ADAPTER_SRCS) -lm -lsqlite3 -o $(LIB)
 
-test: $(BIN) $(LIB)
+test: corpus $(BIN) $(LIB)
 	@echo "=================================================================="
 	@echo " RUNNING TARYAQ STANDALONE C99 ADAPTER ACCEPTANCE TEST"
 	@echo "=================================================================="
-	$(CC) $(CFLAGS) -DTARYAQ_STANDALONE_TEST adapters/taryaq_clinical_adapter.c -lm -o $(BUILD_DIR)/test_taryaq_adapter
+	$(CC) $(CFLAGS) -DTARYAQ_STANDALONE_TEST adapters/taryaq_clinical_adapter.c adapters/taryaq_rag_engine.c -lm -lsqlite3 -o $(BUILD_DIR)/test_taryaq_adapter
 	./$(BUILD_DIR)/test_taryaq_adapter
 	@echo "[PASS] Taryaq clinical adapter tests passed."
 	@echo "=================================================================="
@@ -60,6 +64,10 @@ test: $(BIN) $(LIB)
 	@echo "=================================================================="
 	python3 tests/test_patient_timeline.py
 	@echo "=================================================================="
+	@echo " RUNNING TARYAQ CLINICAL RAG & DHA GROUNDING SUITE"
+	@echo "=================================================================="
+	python3 tests/test_clinical_rag.py
+	@echo "=================================================================="
 	@echo " RUNNING TARYAQ GOMAA LONGITUDINAL PATIENT MEMORY SUITE"
 	@echo "=================================================================="
 	python3 tests/test_taryaq_gomaa.py
@@ -68,6 +76,9 @@ test: $(BIN) $(LIB)
 	@echo "=================================================================="
 	$(MAKE) audit-verify AUDIT_FILE=taryaq_audit.jsonl
 	@echo "[SUCCESS] All Taryaq Agent verification suites passed deterministically!"
+
+rag-demo: $(BIN)
+	@TARYAQ_AUDIT_KEY="$${TARYAQ_AUDIT_KEY:-test-key-32-bytes-minimum-000000}" ./$(BIN) --rag-demo
 
 timeline-demo: $(BIN)
 	@TARYAQ_AUDIT_KEY="$${TARYAQ_AUDIT_KEY:-test-key-32-bytes-minimum-000000}" ./$(BIN) --timeline-demo
@@ -83,4 +94,4 @@ clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete 2>/dev/null || true
 
-.PHONY: all test verify audit-verify timeline-demo clean
+.PHONY: all corpus test verify audit-verify rag-demo timeline-demo clean
