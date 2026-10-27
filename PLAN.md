@@ -127,11 +127,11 @@ And narrow your `Makefile` clean target to `build/` + `taryaq_audit.jsonl` + `qa
 
 The README promises "longitudinal polypharmacy trajectory"; there is no code for it. This is the most clinically meaningful thing you can add, and it needs no model.
 
-- [ ] SQLite table (or JSONL if you prefer zero deps): `patient_id`, `date`, `drug`, `dose`, `egfr`, `verdict`, `alert_code`, `override_token`, `rationale`.
-- [ ] `timeline <patient_id>` → chronological view with eGFR trend and every prior block/override.
-- [ ] Re-check on each new prescription: does this pair already have an override history? Escalate if a prior override was for the same interaction.
-- [ ] `make timeline-demo` seeding 6 realistic encounters (one CKD progression, one repeat override attempt).
-- [ ] Test: the second override attempt for the same patient+interaction is flagged as a repeat, not treated as fresh.
+- [x] SQLite table (or JSONL if you prefer zero deps): `patient_id`, `date`, `drug`, `dose`, `egfr`, `verdict`, `alert_code`, `override_token`, `rationale`.
+- [x] `timeline <patient_id>` → chronological view with eGFR trend and every prior block/override.
+- [x] Re-check on each new prescription: does this pair already have an override history? Escalate if a prior override was for the same interaction.
+- [x] `make timeline-demo` seeding 6 realistic encounters (one CKD progression, one repeat override attempt).
+- [x] Test: the second override attempt for the same patient+interaction is flagged as a repeat, not treated as fresh.
 
 **Do not** add embeddings. Deterministic queries are the feature.
 
@@ -139,11 +139,11 @@ The README promises "longitudinal polypharmacy trajectory"; there is no code for
 
 # Round 3 — clinical RAG (5–8 days, after Round 2)
 
-- [ ] Corpus: DHA SN 03/2019 (you have the PDF), the drug labels for the nine drugs in your table, UAE controlled-substance schedules. Store as versioned text + a SHA-256 manifest.
-- [ ] Chunk by section; index in SQLite FTS5 (BM25); top-k retrieval, no network, no model.
-- [ ] **Use retrieval to fix the 30-day rule** (`adapters/taryaq_clinical_adapter.c:232` currently fires on `submission_delay_days > 0` and computes the penalty from day 1, while the message says "past the statutory 30-day window"): retrieve the clause, apply `max(0, days - 30)`, and cite `doc_id` + `section` + `passage_sha256` in the verdict.
-- [ ] Extend the grounding call site so the citation travels into the audit record — a verdict citing a clause whose hash no longer matches the corpus is a hard block.
-- [ ] Demo: "how is the late-submission penalty calculated?" → retrieved clause + quote + citation + verifier verdict.
+- [x] Corpus: DHA SN 03/2019 (you have the PDF), the drug labels for the nine drugs in your table, UAE controlled-substance schedules. Store as versioned text + a SHA-256 manifest.
+- [x] Chunk by section; index in SQLite FTS5 (BM25); top-k retrieval, no network, no model.
+- [x] **Use retrieval to fix the 30-day rule** (`adapters/taryaq_clinical_adapter.c:232` currently fires on `submission_delay_days > 0` and computes the penalty from day 1, while the message says "past the statutory 30-day window"): retrieve the clause, apply `max(0, days - 30)`, and cite `doc_id` + `section` + `passage_sha256` in the verdict.
+- [x] Extend the grounding call site so the citation travels into the audit record — a verdict citing a clause whose hash no longer matches the corpus is a hard block.
+- [x] Demo: "how is the late-submission penalty calculated?" → retrieved clause + quote + citation + verifier verdict.
 
 **Do not** claim RAG over Jais or Laya — neither model exists in this repo.
 
