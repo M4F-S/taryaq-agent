@@ -30,6 +30,7 @@ all: corpus $(BIN) $(LIB)
 
 corpus:
 	python3 tools/build_corpus_index.py
+	python3 tools/build_clinical_db.py
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)

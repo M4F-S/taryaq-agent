@@ -58,6 +58,66 @@ class TaryaqResult(ctypes.Structure):
     ]
 
 
+class TaryaqSoapNote(ctypes.Structure):
+    _fields_ = [
+        ("subjective", ctypes.c_char * 1024),
+        ("objective", ctypes.c_char * 1024),
+        ("assessment", ctypes.c_char * 1024),
+        ("plan", ctypes.c_char * 1024),
+        ("ranked_ddx_json", ctypes.c_char * 512),
+        ("cds_interrupt_triggered", ctypes.c_bool),
+        ("cds_interrupt_code", ctypes.c_char * 64),
+        ("cds_interrupt_rationale", ctypes.c_char * 256),
+        ("evidence_doc_id", ctypes.c_char * 64),
+        ("evidence_sha256", ctypes.c_char * 65),
+    ]
+
+
+class TaryaqPharmacistResult(ctypes.Structure):
+    _fields_ = [
+        ("total_drugs_screened", ctypes.c_size_t),
+        ("interaction_count", ctypes.c_size_t),
+        ("has_contraindication_block", ctypes.c_bool),
+        ("primary_block_code", ctypes.c_char * 64),
+        ("primary_block_rationale", ctypes.c_char * 256),
+        ("is_controlled_gate", ctypes.c_bool),
+        ("controlled_drug_name", ctypes.c_char * 64),
+        ("net_claim_aed", ctypes.c_double),
+        ("delay_days", ctypes.c_uint32),
+        ("overdue_days", ctypes.c_uint32),
+        ("penalty_rate_pct", ctypes.c_double),
+        ("penalty_aed", ctypes.c_double),
+        ("adjusted_net_aed", ctypes.c_double),
+        ("claim_cycle_warn", ctypes.c_bool),
+        ("claim_alert_code", ctypes.c_char * 64),
+        ("evidence_doc_id", ctypes.c_char * 64),
+        ("evidence_section", ctypes.c_char * 64),
+        ("evidence_sha256", ctypes.c_char * 65),
+        ("polypharmacy_matrix_json", ctypes.c_char * 2048),
+    ]
+
+
+class TaryaqTriageResult(ctypes.Structure):
+    _fields_ = [
+        ("level", ctypes.c_int),
+        ("is_red_flag", ctypes.c_bool),
+        ("triage_category", ctypes.c_char * 64),
+        ("matched_trigger", ctypes.c_char * 64),
+        ("action_protocol", ctypes.c_char * 256),
+        ("clinical_guidance", ctypes.c_char * 256),
+    ]
+
+
+class TaryaqPatientCompanionResult(ctypes.Structure):
+    _fields_ = [
+        ("triage", TaryaqTriageResult),
+        ("lay_instructions", ctypes.c_char * 1024),
+        ("dietary_precautions", ctypes.c_char * 512),
+        ("red_flag_warning", ctypes.c_char * 512),
+        ("requires_immediate_998", ctypes.c_bool),
+    ]
+
+
 TARYAQ_VERDICTS = {
     0: "CLINICAL_SAFE",
     1: "CLINICAL_CLAIM_CYCLE_WARN",
@@ -84,9 +144,45 @@ class TaryaqC99ClinicalGate:
                 except OSError:
                     continue
 
-        if self._lib and hasattr(self._lib, "taryaq_verify_prescription_and_claim"):
-            self._lib.taryaq_verify_prescription_and_claim.argtypes = [ctypes.POINTER(TaryaqRxContext)]
-            self._lib.taryaq_verify_prescription_and_claim.restype = TaryaqResult
+        if self._lib:
+            if hasattr(self._lib, "taryaq_verify_prescription_and_claim"):
+                self._lib.taryaq_verify_prescription_and_claim.argtypes = [ctypes.POINTER(TaryaqRxContext)]
+                self._lib.taryaq_verify_prescription_and_claim.restype = TaryaqResult
+
+            if hasattr(self._lib, "taryaq_clinical_db_init"):
+                self._lib.taryaq_clinical_db_init.argtypes = [ctypes.c_char_p]
+                self._lib.taryaq_clinical_db_init.restype = ctypes.c_bool
+
+            if hasattr(self._lib, "taryaq_clinical_db_close"):
+                self._lib.taryaq_clinical_db_close.argtypes = []
+                self._lib.taryaq_clinical_db_close.restype = None
+
+            if hasattr(self._lib, "taryaq_clinical_db_count_drugs"):
+                self._lib.taryaq_clinical_db_count_drugs.argtypes = []
+                self._lib.taryaq_clinical_db_count_drugs.restype = ctypes.c_int
+
+            if hasattr(self._lib, "taryaq_clinician_ambient_copilot"):
+                self._lib.taryaq_clinician_ambient_copilot.argtypes = [
+                    ctypes.c_char_p, ctypes.c_double, ctypes.c_char_p, ctypes.POINTER(TaryaqSoapNote)
+                ]
+                self._lib.taryaq_clinician_ambient_copilot.restype = ctypes.c_bool
+
+            if hasattr(self._lib, "taryaq_pharmacist_verification"):
+                self._lib.taryaq_pharmacist_verification.argtypes = [
+                    ctypes.c_char_p, ctypes.c_double, ctypes.c_double, ctypes.c_uint32,
+                    ctypes.c_char_p, ctypes.c_bool, ctypes.POINTER(TaryaqPharmacistResult)
+                ]
+                self._lib.taryaq_pharmacist_verification.restype = ctypes.c_bool
+
+            if hasattr(self._lib, "taryaq_patient_companion_consult"):
+                self._lib.taryaq_patient_companion_consult.argtypes = [
+                    ctypes.c_char_p, ctypes.c_char_p, ctypes.c_double, ctypes.POINTER(TaryaqPatientCompanionResult)
+                ]
+                self._lib.taryaq_patient_companion_consult.restype = ctypes.c_bool
+
+            if hasattr(self._lib, "taryaq_triage_patient_symptoms"):
+                self._lib.taryaq_triage_patient_symptoms.argtypes = [ctypes.c_char_p]
+                self._lib.taryaq_triage_patient_symptoms.restype = TaryaqTriageResult
 
     def verify_prescription(
         self,
@@ -146,6 +242,151 @@ class TaryaqC99ClinicalGate:
             "is_blocked": False,
             "latency_ms": round((t1 - t0) / 1_000_000.0, 4),
             "engine": "PYTHON_FALLBACK_GATE"
+        }
+
+    def count_clinical_drugs(self) -> int:
+        """Returns total drugs in loaded sovereign database formulary."""
+        if self._lib and hasattr(self._lib, "taryaq_clinical_db_count_drugs"):
+            return int(self._lib.taryaq_clinical_db_count_drugs())
+        return 9
+
+    def ambient_copilot(
+        self,
+        dialogue_transcript: str,
+        egfr: float = 65.0,
+        proposed_drugs_csv: str = ""
+    ) -> Dict[str, Any]:
+        """Clinician Ambient Copilot: processes transcript, drafts SOAP, computes DDx & pre-order CDS."""
+        if not (self._lib and hasattr(self._lib, "taryaq_clinician_ambient_copilot")):
+            return {"error": "C99 copilot interface not available in loaded library"}
+
+        soap = TaryaqSoapNote()
+        ok = self._lib.taryaq_clinician_ambient_copilot(
+            dialogue_transcript.encode("utf-8"),
+            float(egfr),
+            proposed_drugs_csv.encode("utf-8") if proposed_drugs_csv else b"",
+            ctypes.byref(soap)
+        )
+        ddx_parsed = []
+        ddx_raw = soap.ranked_ddx_json.decode("utf-8", errors="replace")
+        try:
+            if ddx_raw:
+                ddx_parsed = json.loads(ddx_raw)
+        except Exception:
+            pass
+
+        return {
+            "success": bool(ok),
+            "subjective": soap.subjective.decode("utf-8", errors="replace"),
+            "objective": soap.objective.decode("utf-8", errors="replace"),
+            "assessment": soap.assessment.decode("utf-8", errors="replace"),
+            "plan": soap.plan.decode("utf-8", errors="replace"),
+            "ranked_ddx": ddx_parsed,
+            "cds_interrupt_triggered": bool(soap.cds_interrupt_triggered),
+            "cds_interrupt_code": soap.cds_interrupt_code.decode("utf-8", errors="replace"),
+            "cds_interrupt_rationale": soap.cds_interrupt_rationale.decode("utf-8", errors="replace"),
+            "evidence_doc_id": soap.evidence_doc_id.decode("utf-8", errors="replace"),
+            "evidence_sha256": soap.evidence_sha256.decode("utf-8", errors="replace"),
+        }
+
+    def pharmacist_verification(
+        self,
+        medications_csv: str,
+        egfr: float = 60.0,
+        claim_net_aed: float = 0.0,
+        submission_delay_days: int = 0,
+        icd10_code: str = "I10",
+        id_verified: bool = True
+    ) -> Dict[str, Any]:
+        """Pharmacist Verification Console: polypharmacy screening, interaction matrix, DHA claim penalty."""
+        if not (self._lib and hasattr(self._lib, "taryaq_pharmacist_verification")):
+            return {"error": "C99 pharmacist interface not available in loaded library"}
+
+        res = TaryaqPharmacistResult()
+        ok = self._lib.taryaq_pharmacist_verification(
+            medications_csv.encode("utf-8"),
+            float(egfr),
+            float(claim_net_aed),
+            int(submission_delay_days),
+            icd10_code.encode("utf-8") if icd10_code else b"I10",
+            bool(id_verified),
+            ctypes.byref(res)
+        )
+        matrix_parsed = []
+        matrix_raw = res.polypharmacy_matrix_json.decode("utf-8", errors="replace")
+        try:
+            if matrix_raw:
+                matrix_parsed = json.loads(matrix_raw)
+        except Exception:
+            pass
+
+        return {
+            "success": bool(ok),
+            "total_drugs_screened": int(res.total_drugs_screened),
+            "interaction_count": int(res.interaction_count),
+            "has_contraindication_block": bool(res.has_contraindication_block),
+            "primary_block_code": res.primary_block_code.decode("utf-8", errors="replace"),
+            "primary_block_rationale": res.primary_block_rationale.decode("utf-8", errors="replace"),
+            "is_controlled_gate": bool(res.is_controlled_gate),
+            "controlled_drug_name": res.controlled_drug_name.decode("utf-8", errors="replace"),
+            "net_claim_aed": float(res.net_claim_aed),
+            "delay_days": int(res.delay_days),
+            "overdue_days": int(res.overdue_days),
+            "penalty_rate_pct": round(float(res.penalty_rate_pct), 4),
+            "penalty_aed": round(float(res.penalty_aed), 2),
+            "adjusted_net_aed": round(float(res.adjusted_net_aed), 2),
+            "claim_cycle_warn": bool(res.claim_cycle_warn),
+            "claim_alert_code": res.claim_alert_code.decode("utf-8", errors="replace"),
+            "evidence_doc_id": res.evidence_doc_id.decode("utf-8", errors="replace"),
+            "evidence_section": res.evidence_section.decode("utf-8", errors="replace"),
+            "evidence_sha256": res.evidence_sha256.decode("utf-8", errors="replace"),
+            "polypharmacy_matrix": matrix_parsed
+        }
+
+    def patient_companion_consult(
+        self,
+        patient_message: str,
+        active_meds_csv: str = "",
+        egfr: float = 75.0
+    ) -> Dict[str, Any]:
+        """Patient Health Companion: dialectal Arabic ingestion, red-flag triage, lay counseling."""
+        if not (self._lib and hasattr(self._lib, "taryaq_patient_companion_consult")):
+            return {"error": "C99 companion interface not available in loaded library"}
+
+        comp = TaryaqPatientCompanionResult()
+        ok = self._lib.taryaq_patient_companion_consult(
+            patient_message.encode("utf-8"),
+            active_meds_csv.encode("utf-8") if active_meds_csv else b"",
+            float(egfr),
+            ctypes.byref(comp)
+        )
+        return {
+            "success": bool(ok),
+            "requires_immediate_998": bool(comp.requires_immediate_998),
+            "is_red_flag": bool(comp.triage.is_red_flag),
+            "triage_level": int(comp.triage.level),
+            "triage_category": comp.triage.triage_category.decode("utf-8", errors="replace"),
+            "matched_trigger": comp.triage.matched_trigger.decode("utf-8", errors="replace"),
+            "action_protocol": comp.triage.action_protocol.decode("utf-8", errors="replace"),
+            "clinical_guidance": comp.triage.clinical_guidance.decode("utf-8", errors="replace"),
+            "lay_instructions": comp.lay_instructions.decode("utf-8", errors="replace"),
+            "dietary_precautions": comp.dietary_precautions.decode("utf-8", errors="replace"),
+            "red_flag_warning": comp.red_flag_warning.decode("utf-8", errors="replace")
+        }
+
+    def triage_symptoms(self, symptom_narrative: str) -> Dict[str, Any]:
+        """Emergency Red-Flag triage for Arabic or English patient symptom reports."""
+        if not (self._lib and hasattr(self._lib, "taryaq_triage_patient_symptoms")):
+            return {"error": "C99 triage interface not available in loaded library"}
+
+        tr = self._lib.taryaq_triage_patient_symptoms(symptom_narrative.encode("utf-8"))
+        return {
+            "is_red_flag": bool(tr.is_red_flag),
+            "level": int(tr.level),
+            "triage_category": tr.triage_category.decode("utf-8", errors="replace"),
+            "matched_trigger": tr.matched_trigger.decode("utf-8", errors="replace"),
+            "action_protocol": tr.action_protocol.decode("utf-8", errors="replace"),
+            "clinical_guidance": tr.clinical_guidance.decode("utf-8", errors="replace")
         }
 
 
