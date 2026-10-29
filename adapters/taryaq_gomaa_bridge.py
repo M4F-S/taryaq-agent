@@ -113,7 +113,7 @@ class TaryaqPatientCompanionResult(ctypes.Structure):
         ("triage", TaryaqTriageResult),
         ("lay_instructions", ctypes.c_char * 1024),
         ("dietary_precautions", ctypes.c_char * 512),
-        ("red_flag_warning", ctypes.c_char * 512),
+        ("red_flag_warning", ctypes.c_char * 1024),
         ("requires_immediate_998", ctypes.c_bool),
     ]
 

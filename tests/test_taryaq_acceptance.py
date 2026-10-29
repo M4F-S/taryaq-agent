@@ -218,7 +218,7 @@ class TestTaryaqAcceptance(unittest.TestCase):
         """Verifies Tri-Modal Interfaces demonstration mode and interactive CLI commands."""
         # 1. Run --trimodal-demo flag
         cmd = [AGENT_BIN, "--trimodal-demo"]
-        res = subprocess.run(cmd, capture_output=True, text=True)
+        res = subprocess.run(cmd, capture_output=True, text=True, errors="replace")
         self.assertEqual(res.returncode, 0, f"Trimodal demo failed with code {res.returncode}: {res.stderr}")
         self.assertIn("INTERFACE 1: CLINICIAN AMBIENT COPILOT", res.stdout)
         self.assertIn("GENERATED SOAP NOTE", res.stdout)
@@ -243,7 +243,7 @@ class TestTaryaqAcceptance(unittest.TestCase):
             "quit\n"
         )
         cmd = [AGENT_BIN, "--cli"]
-        res_cli = subprocess.run(cmd, input=cli_input, capture_output=True, text=True)
+        res_cli = subprocess.run(cmd, input=cli_input, capture_output=True, text=True, errors="replace")
         self.assertEqual(res_cli.returncode, 0)
         self.assertIn("CLINICIAN AMBIENT COPILOT SOAP NOTE", res_cli.stdout)
         self.assertIn("PHARMACIST VERIFICATION CONSOLE", res_cli.stdout)

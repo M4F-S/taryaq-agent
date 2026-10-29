@@ -142,7 +142,7 @@ typedef struct {
     taryaq_triage_result_t triage;
     char lay_instructions[1024];
     char dietary_precautions[512];
-    char red_flag_warning[512];
+    char red_flag_warning[1024];
     bool requires_immediate_998;
 } taryaq_patient_companion_result_t;
 

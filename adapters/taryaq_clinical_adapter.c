@@ -1126,7 +1126,7 @@ bool taryaq_patient_companion_consult(
             "⚠️ إشعار طوارئ طبي عاجل (EMERGENCY RED-FLAG INTERRUPT):\n"
             "%s\n"
             "التوجيه السريري: %s\n"
-            "الاتصال الفوري بالإسعاف 998 أو 999 أو التوجه لأقرب طوارئ مستشفى فوراً. لا تنتظر موعد العيادة.",
+            "الاتصال الفوري بالإسعاف 998 أو 999 أو التوجه لأقرب طوارئ مستشفى فوراً.",
             out_result->triage.action_protocol,
             out_result->triage.clinical_guidance);
         return true;
