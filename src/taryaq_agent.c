@@ -2757,7 +2757,7 @@ static void run_cli_loop(const char *audit_path, bool enable_telemetry) {
                 printf("Usage: copilot <consultation_transcript>\n");
                 continue;
             }
-            char proposed[128] = {0};
+            char proposed[256] = {0};
             if (g_session.primary_drug[0]) {
                 if (g_session.concurrent_drug[0]) {
                     snprintf(proposed, sizeof(proposed), "%s, %s", g_session.primary_drug, g_session.concurrent_drug);
