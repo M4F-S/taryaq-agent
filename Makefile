@@ -49,6 +49,11 @@ test: corpus $(BIN) $(LIB)
 	./$(BUILD_DIR)/test_taryaq_adapter
 	@echo "[PASS] Taryaq clinical adapter tests passed."
 	@echo "=================================================================="
+	@echo " RUNNING TARYAQ STANDALONE RUST ENGINE & C99 FFI BATTERY"
+	@echo "=================================================================="
+	cargo test -- --nocapture
+	@echo "[PASS] Taryaq Rust engine & C99 FFI bridge passed."
+	@echo "=================================================================="
 	@echo " RUNNING TARYAQ NATIVE CLI ACCEPTANCE BATTERY"
 	@echo "=================================================================="
 	./$(BIN) --test
@@ -87,6 +92,9 @@ timeline-demo: $(BIN)
 audit-verify:
 	@TARYAQ_AUDIT_KEY="$${TARYAQ_AUDIT_KEY:?set TARYAQ_AUDIT_KEY}" python3 tools/verify_audit.py --ledger $${AUDIT_FILE:-taryaq_audit.jsonl}
 
+test-rust:
+	cargo test -- --nocapture
+
 verify: test audit-verify
 
 clean:
@@ -95,4 +103,4 @@ clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete 2>/dev/null || true
 
-.PHONY: all corpus test verify audit-verify rag-demo timeline-demo clean
+.PHONY: all corpus test test-rust verify audit-verify rag-demo timeline-demo clean
