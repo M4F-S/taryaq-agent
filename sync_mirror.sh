@@ -41,7 +41,7 @@ if [[ -n "$GDRIVE_ROOT" && -d "$GDRIVE_ROOT" ]]; then
     mkdir -p "$TARGET_DIR"
 
     # Default to safe rsync without --delete unless explicitly requested
-    RSYNC_OPTS=(-av --exclude=".git" --exclude="build" --exclude="*.dylib" --exclude="*.so" --exclude="*.jsonl" --exclude="__pycache__")
+    RSYNC_OPTS=(-av --exclude=".git" --exclude="build" --exclude="target" --exclude="*.dylib" --exclude="*.so" --exclude="*.jsonl" --exclude="__pycache__")
     if [[ "${SYNC_DELETE:-0}" == "1" ]]; then
         RSYNC_OPTS+=(--delete)
     fi
