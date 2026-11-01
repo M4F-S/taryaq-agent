@@ -3,12 +3,27 @@
 
 pub mod clinical;
 pub mod safety;
+pub mod trimodal;
+pub mod voice;
 
 pub use clinical::{
     ClinicalDatabase, ClinicalError, DrugInteraction, FormularyDrug,
     HitlQuarantineRecord, InteractionCheckResult, InteractionCheckVerdict,
     InteractionSeverity, LabDiagnosticPanel, MedicalCondition, ProfileScreeningResult,
     DHA_NABIDH_SAFE, UNVERIFIED_DRUG_REQUIRES_PHARMACIST_REVIEW,
+};
+pub use trimodal::{
+    AuditEntryInput, AuditError, AuditLedger, AuditRecord, CdsInterrupt,
+    ClinicianAmbientCopilot, ClinicianEncounterInput, ClinicianOverrideSubmission,
+    DhaPenaltyBreakdown, DialectCategory, DialogueTurn, DifferentialDiagnosis,
+    EmergencyDispatchDirective, PatientCompanionConsultation, PatientHealthCompanion,
+    PharmacistError, PharmacistVerificationConsole, PharmacistVerificationInput,
+    PharmacistVerificationReport, PosologyGuidance, RedFlagCategory,
+    StructuredSoapNote, TokenRegistry, TraceLinkedEvidence, VitalsObservation,
+    DEFAULT_AUDIT_LOG,
+};
+pub use voice::{
+    AudioFormat, AudioSegment, TranscriptionResult, VoiceError, VoicePipeline,
 };
 pub use safety::{
     clinical_db_close, clinical_db_count_drugs, clinical_db_init, clinician_ambient_copilot,
