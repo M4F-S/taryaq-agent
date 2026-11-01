@@ -707,6 +707,64 @@ impl ClinicalDatabase {
         Ok(cond)
     }
 
+    /// List all modeled medical conditions
+    pub fn list_medical_conditions(&self) -> Result<Vec<MedicalCondition>, ClinicalError> {
+        let conn = self.conn.lock().map_err(|e| ClinicalError::LockError(e.to_string()))?;
+        let mut stmt = conn.prepare_cached(
+            r#"SELECT icd10_code, icd11_code, condition_name_en, condition_name_ar,
+                      category, red_flag_priority
+               FROM medical_conditions ORDER BY red_flag_priority DESC, icd10_code ASC;"#,
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok(MedicalCondition {
+                icd10_code: row.get(0)?,
+                icd11_code: row.get(1)?,
+                condition_name_en: row.get(2)?,
+                condition_name_ar: row.get(3)?,
+                category: row.get(4)?,
+                red_flag_priority: row.get(5)?,
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for r in rows {
+            result.push(r?);
+        }
+        Ok(result)
+    }
+
+    /// Search medical conditions by keyword across English, Arabic, or ICD codes
+    pub fn search_medical_conditions(&self, query: &str) -> Result<Vec<MedicalCondition>, ClinicalError> {
+        let q = format!("%{}%", query.trim().to_lowercase());
+        let conn = self.conn.lock().map_err(|e| ClinicalError::LockError(e.to_string()))?;
+        let mut stmt = conn.prepare_cached(
+            r#"SELECT icd10_code, icd11_code, condition_name_en, condition_name_ar,
+                      category, red_flag_priority
+               FROM medical_conditions
+               WHERE LOWER(icd10_code) LIKE ? OR LOWER(condition_name_en) LIKE ?
+                  OR LOWER(condition_name_ar) LIKE ? OR LOWER(category) LIKE ?
+               ORDER BY red_flag_priority DESC, icd10_code ASC;"#,
+        )?;
+
+        let rows = stmt.query_map(params![q, q, q, q], |row| {
+            Ok(MedicalCondition {
+                icd10_code: row.get(0)?,
+                icd11_code: row.get(1)?,
+                condition_name_en: row.get(2)?,
+                condition_name_ar: row.get(3)?,
+                category: row.get(4)?,
+                red_flag_priority: row.get(5)?,
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for r in rows {
+            result.push(r?);
+        }
+        Ok(result)
+    }
+
     /// Retrieve diagnostic lab panel by LOINC code
     pub fn get_lab_panel(&self, loinc: &str) -> Result<Option<LabDiagnosticPanel>, ClinicalError> {
         let code = loinc.trim();
@@ -793,11 +851,12 @@ impl ClinicalDatabase {
 
     /// Helper to determine if a combination is an explicitly verified safe co-prescription
     fn is_explicitly_safe_pair(&self, atc_a: &str, atc_b: &str) -> bool {
-        let safe_pairs: [(&str, &str); 4] = [
+        let safe_pairs: [(&str, &str); 5] = [
             ("A10BA02", "C10AA01"), // Metformin + Simvastatin
             ("N02BE01", "J01CA04"), // Paracetamol + Amoxicillin
             ("N02BE01", "C09AA03"), // Paracetamol + Lisinopril
             ("A10BA02", "A10BH01"), // Metformin + Sitagliptin
+            ("C09AA03", "C08CA01"), // Lisinopril + Amlodipine (DHA/DHIC/HEIPD/CG-20)
         ];
 
         for (sa, sb) in &safe_pairs {
