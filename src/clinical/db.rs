@@ -849,6 +849,317 @@ impl ClinicalDatabase {
         Ok(rec)
     }
 
+    /// List quarantine records with optional status filter ('PENDING', 'APPROVED', 'REJECTED')
+    pub fn list_hitl_records(
+        &self,
+        status_filter: Option<&str>,
+    ) -> Result<Vec<HitlQuarantineRecord>, ClinicalError> {
+        let conn = self.conn.lock().map_err(|e| ClinicalError::LockError(e.to_string()))?;
+        let mut results = Vec::new();
+
+        if let Some(status) = status_filter {
+            let mut stmt = conn.prepare_cached(
+                r#"SELECT staging_id, source_url, extracted_finding, target_atc_code,
+                          proposed_interaction_json, evidence_pmid, discovered_at,
+                          review_status, reviewer_notes, reviewed_at
+                   FROM hitl_clinical_quarantine
+                   WHERE review_status = ?
+                   ORDER BY staging_id DESC;"#,
+            )?;
+            let rows = stmt.query_map(params![status], |row| {
+                Ok(HitlQuarantineRecord {
+                    staging_id: row.get(0)?,
+                    source_url: row.get(1)?,
+                    extracted_finding: row.get(2)?,
+                    target_atc_code: row.get(3)?,
+                    proposed_interaction_json: row.get(4)?,
+                    evidence_pmid: row.get(5)?,
+                    discovered_at: row.get(6)?,
+                    review_status: row.get(7)?,
+                    reviewer_notes: row.get(8)?,
+                    reviewed_at: row.get(9)?,
+                })
+            })?;
+            for r in rows {
+                results.push(r?);
+            }
+        } else {
+            let mut stmt = conn.prepare_cached(
+                r#"SELECT staging_id, source_url, extracted_finding, target_atc_code,
+                          proposed_interaction_json, evidence_pmid, discovered_at,
+                          review_status, reviewer_notes, reviewed_at
+                   FROM hitl_clinical_quarantine
+                   ORDER BY staging_id DESC;"#,
+            )?;
+            let rows = stmt.query_map([], |row| {
+                Ok(HitlQuarantineRecord {
+                    staging_id: row.get(0)?,
+                    source_url: row.get(1)?,
+                    extracted_finding: row.get(2)?,
+                    target_atc_code: row.get(3)?,
+                    proposed_interaction_json: row.get(4)?,
+                    evidence_pmid: row.get(5)?,
+                    discovered_at: row.get(6)?,
+                    review_status: row.get(7)?,
+                    reviewer_notes: row.get(8)?,
+                    reviewed_at: row.get(9)?,
+                })
+            })?;
+            for r in rows {
+                results.push(r?);
+            }
+        }
+
+        Ok(results)
+    }
+
+    /// Update quarantine record review status ('APPROVED' / 'REJECTED') and reviewer notes
+    pub fn update_hitl_status(
+        &self,
+        staging_id: i64,
+        status: &str,
+        notes: Option<&str>,
+    ) -> Result<bool, ClinicalError> {
+        let conn = self.conn.lock().map_err(|e| ClinicalError::LockError(e.to_string()))?;
+        let rows = conn.execute(
+            r#"UPDATE hitl_clinical_quarantine
+               SET review_status = ?, reviewer_notes = ?, reviewed_at = CURRENT_TIMESTAMP
+               WHERE staging_id = ?;"#,
+            params![status, notes, staging_id],
+        )?;
+        Ok(rows > 0)
+    }
+
+    /// Insert or promote a drug interaction into the live production database
+    pub fn insert_drug_interaction(
+        &self,
+        drug_a_atc: &str,
+        drug_b_atc: &str,
+        alert_code: &str,
+        severity_level: &str,
+        mechanism_text: &str,
+        clinical_action: &str,
+        evidence_citation: &str,
+    ) -> Result<i64, ClinicalError> {
+        let conn = self.conn.lock().map_err(|e| ClinicalError::LockError(e.to_string()))?;
+        conn.execute(
+            r#"INSERT OR REPLACE INTO drug_interactions (
+                   drug_a_atc, drug_b_atc, alert_code, severity_level,
+                   mechanism_text, clinical_action, evidence_citation
+               ) VALUES (?, ?, ?, ?, ?, ?, ?);"#,
+            params![
+                drug_a_atc,
+                drug_b_atc,
+                alert_code,
+                severity_level,
+                mechanism_text,
+                clinical_action,
+                evidence_citation,
+            ],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    /// Delete a drug interaction (for cleanup or rollback)
+    pub fn delete_drug_interaction(&self, alert_code: &str) -> Result<bool, ClinicalError> {
+        let conn = self.conn.lock().map_err(|e| ClinicalError::LockError(e.to_string()))?;
+        let rows = conn.execute(
+            "DELETE FROM drug_interactions WHERE alert_code = ?;",
+            params![alert_code],
+        )?;
+        Ok(rows > 0)
+    }
+
+    /// Ensure candidate drug exists in formulary_drugs, creating an entry if newly discovered
+    pub fn ensure_formulary_drug(
+        &self,
+        atc_code: &str,
+        canonical_name: &str,
+    ) -> Result<(), ClinicalError> {
+        let conn = self.conn.lock().map_err(|e| ClinicalError::LockError(e.to_string()))?;
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM formulary_drugs WHERE atc_code = ?;",
+            params![atc_code],
+            |r| r.get(0),
+        )?;
+        if count == 0 {
+            // Ensure default class exists
+            conn.execute(
+                r#"INSERT OR IGNORE INTO drug_classes (class_id, class_name, category)
+                   VALUES (44, 'Immunology & Oncology', 'Immunology & Oncology');"#,
+                [],
+            )?;
+            conn.execute(
+                r#"INSERT INTO formulary_drugs (
+                       atc_code, canonical_name, arabic_name, brand_names_json,
+                       drug_class_id, renal_egfr_cutoff, hepatic_metabolism_pct,
+                       max_daily_dose_mg, is_controlled_uae, schedule_law_30_2021,
+                       narrow_therapeutic_index, cyp3a4_profile, cyp2d6_profile,
+                       cyp2c9_profile, cyp2c19_profile, p_gp_profile, qt_risk,
+                       hyperkalemia_risk, serotonin_risk, indications_icd10_json,
+                       clinical_pearls
+                   ) VALUES (
+                       ?, ?, ?, '[]',
+                       44, 0.0, 50.0,
+                       1000.0, 0, 'Non_Controlled',
+                       0, 'SUBSTRATE', 'NONE',
+                       'NONE', 'NONE', 'SUBSTRATE', 'NONE',
+                       0, 0, '[]',
+                       'Admitted via HITL Pharmacist Gate'
+                   );"#,
+                params![atc_code, canonical_name, canonical_name],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Atomically promote a quarantined finding to production:
+    /// 1. Ensures candidate drugs exist in formulary_drugs
+    /// 2. Inserts interaction into drug_interactions with evidence SHA-256
+    /// 3. Updates quarantine record status to 'APPROVED' with reviewer notes and timestamp
+    /// All performed within an atomic SQLite transaction.
+    pub fn promote_quarantine_record(
+        &self,
+        staging_id: i64,
+        drug_a_name: &str,
+        drug_a_atc: &str,
+        drug_b_name: &str,
+        drug_b_atc: &str,
+        alert_code: &str,
+        severity: &str,
+        mechanism: &str,
+        clinical_action: &str,
+        evidence_citation: &str,
+        evidence_sha256: Option<&str>,
+        reviewer_notes: &str,
+    ) -> Result<DrugInteraction, ClinicalError> {
+        let mut conn = self.conn.lock().map_err(|e| ClinicalError::LockError(e.to_string()))?;
+        let tx = conn.transaction()?;
+
+        // Ensure default drug class exists
+        tx.execute(
+            r#"INSERT OR IGNORE INTO drug_classes (class_id, class_name, category)
+               VALUES (44, 'Immunology & Oncology', 'Immunology & Oncology');"#,
+            [],
+        )?;
+
+        // Ensure drug A is in formulary
+        let count_a: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM formulary_drugs WHERE atc_code = ?;",
+            params![drug_a_atc],
+            |r| r.get(0),
+        )?;
+        if count_a == 0 {
+            tx.execute(
+                r#"INSERT INTO formulary_drugs (
+                       atc_code, canonical_name, arabic_name, brand_names_json,
+                       drug_class_id, renal_egfr_cutoff, hepatic_metabolism_pct,
+                       max_daily_dose_mg, is_controlled_uae, schedule_law_30_2021,
+                       narrow_therapeutic_index, cyp3a4_profile, cyp2d6_profile,
+                       cyp2c9_profile, cyp2c19_profile, p_gp_profile, qt_risk,
+                       hyperkalemia_risk, serotonin_risk, indications_icd10_json,
+                       clinical_pearls
+                   ) VALUES (
+                       ?, ?, ?, '[]',
+                       44, 0.0, 50.0,
+                       1000.0, 0, 'Non_Controlled',
+                       0, 'SUBSTRATE', 'NONE',
+                       'NONE', 'NONE', 'SUBSTRATE', 'NONE',
+                       0, 0, '[]',
+                       'Admitted via HITL Pharmacist Gate'
+                   );"#,
+                params![drug_a_atc, drug_a_name, drug_a_name],
+            )?;
+        }
+
+        // Ensure drug B is in formulary
+        let count_b: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM formulary_drugs WHERE atc_code = ?;",
+            params![drug_b_atc],
+            |r| r.get(0),
+        )?;
+        if count_b == 0 {
+            tx.execute(
+                r#"INSERT INTO formulary_drugs (
+                       atc_code, canonical_name, arabic_name, brand_names_json,
+                       drug_class_id, renal_egfr_cutoff, hepatic_metabolism_pct,
+                       max_daily_dose_mg, is_controlled_uae, schedule_law_30_2021,
+                       narrow_therapeutic_index, cyp3a4_profile, cyp2d6_profile,
+                       cyp2c9_profile, cyp2c19_profile, p_gp_profile, qt_risk,
+                       hyperkalemia_risk, serotonin_risk, indications_icd10_json,
+                       clinical_pearls
+                   ) VALUES (
+                       ?, ?, ?, '[]',
+                       44, 0.0, 50.0,
+                       1000.0, 0, 'Non_Controlled',
+                       0, 'SUBSTRATE', 'NONE',
+                       'NONE', 'NONE', 'SUBSTRATE', 'NONE',
+                       0, 0, '[]',
+                       'Admitted via HITL Pharmacist Gate'
+                   );"#,
+                params![drug_b_atc, drug_b_name, drug_b_name],
+            )?;
+        }
+
+        // Insert or replace into drug_interactions
+        tx.execute(
+            r#"INSERT OR REPLACE INTO drug_interactions (
+                   drug_a_atc, drug_b_atc, alert_code, severity_level,
+                   mechanism_text, clinical_action, evidence_citation,
+                   evidence_sha256
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);"#,
+            params![
+                drug_a_atc,
+                drug_b_atc,
+                alert_code,
+                severity,
+                mechanism,
+                clinical_action,
+                evidence_citation,
+                evidence_sha256,
+            ],
+        )?;
+
+        let inter_id = tx.last_insert_rowid();
+
+        // Update quarantine status to APPROVED
+        tx.execute(
+            r#"UPDATE hitl_clinical_quarantine
+               SET review_status = 'APPROVED', reviewer_notes = ?, reviewed_at = CURRENT_TIMESTAMP
+               WHERE staging_id = ?;"#,
+            params![reviewer_notes, staging_id],
+        )?;
+
+        tx.commit()?;
+
+        Ok(DrugInteraction {
+            interaction_id: inter_id,
+            drug_a_atc: drug_a_atc.to_string(),
+            drug_b_atc: drug_b_atc.to_string(),
+            alert_code: alert_code.to_string(),
+            severity_level: severity.to_string(),
+            mechanism_text: mechanism.to_string(),
+            clinical_action: clinical_action.to_string(),
+            evidence_citation: evidence_citation.to_string(),
+        })
+    }
+
+    /// Mark a quarantine record as REJECTED without modifying live production tables
+    pub fn reject_quarantine_record(
+        &self,
+        staging_id: i64,
+        reviewer_notes: &str,
+    ) -> Result<bool, ClinicalError> {
+        let conn = self.conn.lock().map_err(|e| ClinicalError::LockError(e.to_string()))?;
+        let rows = conn.execute(
+            r#"UPDATE hitl_clinical_quarantine
+               SET review_status = 'REJECTED', reviewer_notes = ?, reviewed_at = CURRENT_TIMESTAMP
+               WHERE staging_id = ? AND review_status = 'PENDING';"#,
+            params![reviewer_notes, staging_id],
+        )?;
+        Ok(rows > 0)
+    }
+
     /// Helper to determine if a combination is an explicitly verified safe co-prescription
     fn is_explicitly_safe_pair(&self, atc_a: &str, atc_b: &str) -> bool {
         let safe_pairs: [(&str, &str); 5] = [

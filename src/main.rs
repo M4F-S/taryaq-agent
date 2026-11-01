@@ -25,6 +25,7 @@ async fn main() {
         "pharmacist" => run_pharmacist_cli(&args[2..]),
         "companion" => run_companion_cli(&args[2..]),
         "voice-transcribe" => run_voice_transcribe_cli(&args[2..]),
+        "quarantine" | "hitl" => run_quarantine_cli(&args[2..]),
         "daemon" | "--daemon" => run_default_daemon().await,
         "--help" | "-h" | "help" => print_usage(),
         unknown => {
@@ -47,6 +48,7 @@ COMMANDS:
   pharmacist        Run Pharmacist Verification Console (polypharmacy screening & claims penalty)
   companion         Run Patient Health Companion (dialectal intake & emergency 998 triage)
   voice-transcribe  Ingest audio file (.wav, .ogg, .mp3), transcribe offline & route to interface
+  quarantine        Human-in-the-Loop quarantine management & PubMed/FDA alert scanner
   daemon            Start persistent sovereign daemon runtime
 
 EXAMPLES:
@@ -61,6 +63,11 @@ EXAMPLES:
 
   # 4. Local Voice Transcription & Routing
   taryaq_agent_daemon voice-transcribe test_audio.wav --route copilot
+
+  # 5. HITL Pharmacist Gate & Quarantine Buffer
+  taryaq_agent_daemon quarantine scan --source openfda
+  taryaq_agent_daemon quarantine list --status PENDING
+  taryaq_agent_daemon quarantine approve 1 --notes "Approved by Mohamed Fathy, BPharm"
 "#);
 }
 
@@ -398,6 +405,240 @@ fn run_voice_transcribe_cli(args: &[String]) {
         }
         Err(e) => {
             eprintln!("[-] Audio Transcription Failed: {}", e);
+        }
+    }
+}
+
+fn run_quarantine_cli(args: &[String]) {
+    use taryaq::quarantine::{AlertSource, ThePharmacistGate, WebAlertScanner};
+
+    if args.is_empty() {
+        println!(r#"TARYAQ HITL Quarantine Buffer & Pharmacist Gate CLI
+Usage:
+  taryaq quarantine list [--status PENDING|APPROVED|REJECTED]
+  taryaq quarantine inspect <staging_id>
+  taryaq quarantine scan [--source all|openfda|pubmed|mohap|dha|who]
+  taryaq quarantine approve <staging_id> [--reviewer "<name>"] [--notes "<notes>"]
+  taryaq quarantine reject <staging_id> [--reason "<reason>"] [--reviewer "<name>"]
+"#);
+        return;
+    }
+
+    match args[0].as_str() {
+        "list" => {
+            let mut status = None;
+            let mut i = 1;
+            while i < args.len() {
+                if args[i] == "--status" && i + 1 < args.len() {
+                    status = Some(args[i + 1].clone());
+                    i += 1;
+                }
+                i += 1;
+            }
+
+            match ThePharmacistGate::with_default() {
+                Ok(gate) => match gate.list_findings(status.as_deref()) {
+                    Ok(records) => {
+                        println!("================================================================================");
+                        println!("  HITL CLINICAL QUARANTINE STAGING BUFFER ({})", status.as_deref().unwrap_or("ALL"));
+                        println!("================================================================================");
+                        if records.is_empty() {
+                            println!("No quarantine records found matching filter.");
+                        } else {
+                            for r in records {
+                                println!("[ID: {:>3}] Status: {:<9} | PMID: {:<10} | Discovered: {}",
+                                    r.staging_id, r.review_status, r.evidence_pmid.as_deref().unwrap_or("N/A"), r.discovered_at.as_deref().unwrap_or("N/A"));
+                                println!("  Source:   {}", r.source_url);
+                                println!("  Finding:  {}", r.extracted_finding);
+                                if let Some(ref notes) = r.reviewer_notes {
+                                    println!("  Notes:    {}", notes);
+                                }
+                                println!("--------------------------------------------------------------------------------");
+                            }
+                        }
+                    }
+                    Err(e) => eprintln!("[-] Error querying quarantine buffer: {}", e),
+                },
+                Err(e) => eprintln!("[-] Database error: {}", e),
+            }
+        }
+        "inspect" => {
+            if args.len() < 2 {
+                eprintln!("Usage: taryaq quarantine inspect <staging_id>");
+                return;
+            }
+            let staging_id: i64 = match args[1].parse() {
+                Ok(id) => id,
+                Err(_) => {
+                    eprintln!("Invalid staging_id: '{}'", args[1]);
+                    return;
+                }
+            };
+
+            match ThePharmacistGate::with_default() {
+                Ok(gate) => match gate.inspect_finding(staging_id) {
+                    Ok(Some((record, payload))) => {
+                        println!("================================================================================");
+                        println!("  QUARANTINE RECORD INSPECTION — ID: {}", record.staging_id);
+                        println!("================================================================================");
+                        println!("Review Status:      {}", record.review_status);
+                        println!("Target ATC:         {}", record.target_atc_code.as_deref().unwrap_or("N/A"));
+                        println!("Discovered At:      {}", record.discovered_at.as_deref().unwrap_or("N/A"));
+                        println!("Reviewed At:        {}", record.reviewed_at.as_deref().unwrap_or("N/A"));
+                        println!("Reviewer Notes:     {}", record.reviewer_notes.as_deref().unwrap_or("None"));
+                        println!("Evidence Source:    {}", record.source_url);
+                        println!("Evidence PMID:      {}", record.evidence_pmid.as_deref().unwrap_or("N/A"));
+                        println!("Raw Finding Text:\n  {}", record.extracted_finding);
+                        println!("--------------------------------------------------------------------------------");
+                        if let Some(p) = payload {
+                            println!("PROPOSED INTERACTION PROMOTION PAYLOAD:");
+                            println!("  Drug A:           {} (ATC: {})", p.drug_a_name, p.drug_a_atc);
+                            println!("  Drug B:           {} (ATC: {})", p.drug_b_name, p.drug_b_atc);
+                            println!("  Alert Code:       {}", p.alert_code);
+                            println!("  Severity Level:   {}", p.severity);
+                            println!("  Mechanism:        {}", p.mechanism);
+                            println!("  Clinical Action:  {}", p.clinical_action);
+                            println!("  Citation:         {}", p.evidence_citation);
+                            println!("  Evidence SHA-256: {}", p.evidence_sha256);
+                        } else {
+                            println!("Proposed Payload:   [Raw JSON unparsed]");
+                        }
+                        println!("================================================================================");
+                    }
+                    Ok(None) => {
+                        eprintln!("[-] Quarantine record with ID {} not found.", staging_id);
+                    }
+                    Err(e) => eprintln!("[-] Error inspecting quarantine record: {}", e),
+                },
+                Err(e) => eprintln!("[-] Database error: {}", e),
+            }
+        }
+        "scan" => {
+            let mut source = AlertSource::All;
+            let mut i = 1;
+            while i < args.len() {
+                if args[i] == "--source" && i + 1 < args.len() {
+                    source = match args[i + 1].to_lowercase().as_str() {
+                        "openfda" | "fda" => AlertSource::OpenFda,
+                        "pubmed" => AlertSource::PubMed,
+                        "mohap" => AlertSource::Mohap,
+                        "dha" => AlertSource::Dha,
+                        "who" => AlertSource::Who,
+                        _ => AlertSource::All,
+                    };
+                    i += 1;
+                }
+                i += 1;
+            }
+
+            match WebAlertScanner::with_default() {
+                Ok(scanner) => match scanner.scan_and_stage(source) {
+                    Ok(ids) => {
+                        println!("[+] Pharmacovigilance Scan Complete: Staged {} new findings into quarantine.", ids.len());
+                        for id in ids {
+                            println!("    • Staged Finding ID: {}", id);
+                        }
+                    }
+                    Err(e) => eprintln!("[-] Ingestion error: {}", e),
+                },
+                Err(e) => eprintln!("[-] Scanner initialization error: {}", e),
+            }
+        }
+        "approve" => {
+            if args.len() < 2 {
+                eprintln!("Usage: taryaq quarantine approve <staging_id> [--reviewer \"...\"] [--notes \"...\"]");
+                return;
+            }
+            let staging_id: i64 = match args[1].parse() {
+                Ok(id) => id,
+                Err(_) => {
+                    eprintln!("Invalid staging_id: '{}'", args[1]);
+                    return;
+                }
+            };
+
+            let mut notes = "Approved based on clinical evidence and pharmacovigilance review.".to_string();
+            let mut reviewer = None;
+            let mut i = 2;
+            while i < args.len() {
+                if args[i] == "--notes" && i + 1 < args.len() {
+                    notes = args[i + 1].clone();
+                    i += 1;
+                } else if (args[i] == "--reviewer" || args[i] == "--license") && i + 1 < args.len() {
+                    reviewer = Some(args[i + 1].clone());
+                    i += 1;
+                }
+                i += 1;
+            }
+
+            match ThePharmacistGate::with_default() {
+                Ok(gate) => match gate.approve_finding(staging_id, &notes, reviewer.as_deref()) {
+                    Ok(receipt) => {
+                        println!("================================================================================");
+                        println!("  PHARMACIST GATE: FINDING APPROVED & ATOMICALLY PROMOTED TO PRODUCTION");
+                        println!("================================================================================");
+                        println!("Staging ID:          {}", receipt.staging_id);
+                        println!("Alert Code:          {}", receipt.alert_code);
+                        println!("Severity Tier:       {}", receipt.severity);
+                        println!("Drug A (ATC):        {}", receipt.drug_a_atc);
+                        println!("Drug B (ATC):        {}", receipt.drug_b_atc);
+                        println!("Reviewer:            {}", receipt.reviewer_credentials);
+                        println!("Reviewer Notes:      {}", receipt.reviewer_notes);
+                        println!("Review Date:         {}", receipt.reviewed_at_utc);
+                        println!("Evidence SHA-256:    {}", receipt.evidence_sha256);
+                        println!("[SUCCESS] Rule is now live in production drug_interactions table!");
+                    }
+                    Err(e) => eprintln!("[-] Approval failed: {}", e),
+                },
+                Err(e) => eprintln!("[-] Database error: {}", e),
+            }
+        }
+        "reject" => {
+            if args.len() < 2 {
+                eprintln!("Usage: taryaq quarantine reject <staging_id> [--reason \"...\"] [--reviewer \"...\"]");
+                return;
+            }
+            let staging_id: i64 = match args[1].parse() {
+                Ok(id) => id,
+                Err(_) => {
+                    eprintln!("Invalid staging_id: '{}'", args[1]);
+                    return;
+                }
+            };
+
+            let mut reason = "Rejected: Insufficient clinical evidence for outpatient contraindication.".to_string();
+            let mut reviewer = None;
+            let mut i = 2;
+            while i < args.len() {
+                if (args[i] == "--reason" || args[i] == "--notes") && i + 1 < args.len() {
+                    reason = args[i + 1].clone();
+                    i += 1;
+                } else if (args[i] == "--reviewer" || args[i] == "--license") && i + 1 < args.len() {
+                    reviewer = Some(args[i + 1].clone());
+                    i += 1;
+                }
+                i += 1;
+            }
+
+            match ThePharmacistGate::with_default() {
+                Ok(gate) => match gate.reject_finding(staging_id, &reason, reviewer.as_deref()) {
+                    Ok(receipt) => {
+                        println!("================================================================================");
+                        println!("  PHARMACIST GATE: FINDING REJECTED");
+                        println!("================================================================================");
+                        println!("Staging ID:          {}", receipt.staging_id);
+                        println!("Reviewer:            {}", receipt.reviewer_credentials);
+                        println!("Reviewer Notes:      {}", receipt.reviewer_notes);
+                        println!("Rejection Date:      {}", receipt.rejected_at_utc);
+                        println!("[INFO] Finding marked REJECTED. Zero changes made to production tables.");
+                    }
+                    Err(e) => eprintln!("[-] Rejection failed: {}", e),
+                },
+                Err(e) => eprintln!("[-] Database error: {}", e),
+            }
+        }
+        unknown => {
+            eprintln!("Unknown quarantine action: '{}'", unknown);
         }
     }
 }

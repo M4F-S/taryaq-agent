@@ -2,6 +2,8 @@
 //! Dubai Create AI Agents Championship 2026–2027
 
 pub mod clinical;
+pub mod quarantine;
+pub use quarantine as hitl;
 pub mod safety;
 pub mod trimodal;
 pub mod voice;
@@ -11,6 +13,11 @@ pub use clinical::{
     HitlQuarantineRecord, InteractionCheckResult, InteractionCheckVerdict,
     InteractionSeverity, LabDiagnosticPanel, MedicalCondition, ProfileScreeningResult,
     DHA_NABIDH_SAFE, UNVERIFIED_DRUG_REQUIRES_PHARMACIST_REVIEW,
+};
+pub use quarantine::{
+    compute_evidence_sha256, AlertSource, HitlError, PromotionResult, ProposedInteractionPayload,
+    RawAlertFinding, RejectionResult, ThePharmacistGate, WebAlertScanner,
+    DEFAULT_PHARMACIST_REVIEWER,
 };
 pub use trimodal::{
     AuditEntryInput, AuditError, AuditLedger, AuditRecord, CdsInterrupt,
