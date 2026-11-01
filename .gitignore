@@ -7,6 +7,10 @@ target/
 *.dylib
 *.out
 
+# SQLite WAL and SHM
+*.db-wal
+*.db-shm
+
 # Runtime logs
 taryaq_audit.jsonl
 *.audit.jsonl
