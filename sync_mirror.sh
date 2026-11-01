@@ -58,7 +58,7 @@ CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 
 # Stage tracked and known repo files explicitly
 git add -u
-git add src/ adapters/ tests/ tools/ Makefile README.md LICENSE NOTICE sync_mirror.sh 2>/dev/null || true
+git add src/ adapters/ tests/ tools/ docs/ Makefile README.md PLAN.md LICENSE NOTICE Cargo.toml Cargo.lock sync_mirror.sh 2>/dev/null || true
 if [[ -d .github ]]; then
     git add .github/
 fi
