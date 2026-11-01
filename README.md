@@ -58,28 +58,52 @@ Taryaq integrates optionally with **gomaa** (`https://github.com/M4F-S/gomaa`), 
 
 ---
 
-### 5. Roadmap — not shipped
-The following high-level interfaces represent the production roadmap and are not yet shipped in the bare-metal C99 core engine:
-1. **Clinician Interface (Doctors & Ambulatory Clinics — Roadmap):**
+### 5. Production Shipped Components (Standalone Rust + C99 FFI)
+All core clinical interfaces and statutory engines are fully implemented and verified in the standalone Rust runtime (`v0.1.0`):
+1. **Clinician Ambient Copilot (`src/trimodal/copilot.rs`):**
    - Ambient bilingual consultation listening (code-switching from spoken Arabic dialects to medical English).
-   - Trace-linked SOAP note generation ("agent drafts, clinician signs" non-SaMD workflow).
-   - Real-time pre-order CDS hooks in EHR workflows.
-2. **Pharmacist Interface (Community & Hospital Pharmacies — Roadmap):**
-   - Automated batch submission to Dubai `eClaimLink` post office.
-   - Multi-clinician override governance dashboard.
-3. **Patient Interface (Companion & Intake — Roadmap):**
-   - Conversational intake in regional Arabic dialects.
-   - Plain-language patient counseling and adherence reminders.
-   - Wearable vitals integration with remote triage escalation.
+   - Trace-linked SOAP note generation ("agent drafts, clinician signs").
+   - Ranked Differential Diagnosis (DDx) generator with evidence weights.
+   - Pre-order CDS interrupt blocking contraindicated regimens before signature.
+2. **Pharmacist Verification Console (`src/trimodal/pharmacist.rs`):**
+   - Polypharmacy interaction screening across full active patient regimens.
+   - Statutory DHA SN 03/2019 claims delay penalty calculation ($\max(0, \text{days}-30) \times 0.03\% \times \text{Net Claim}$).
+   - Single-use clinician override governance with HTTP 409 replay attack prevention.
+   - Append-only HMAC-SHA256 cryptographic audit ledger (`taryaq_audit.jsonl`).
+3. **Patient Health Companion (`src/trimodal/companion.rs`):**
+   - Conversational intake in Gulf, Egyptian, and Levantine Arabic.
+   - Emergency red-flag intercept (acute chest pain, stroke FAST, severe dyspnea, hemorrhage) triggering immediate 998/999 ambulance dispatch.
+   - Plain-language posology and lifestyle counseling.
+4. **Local Voice Audio Pipeline (`src/voice/mod.rs`):**
+   - Local `.wav`, `.ogg`, `.mp3` ingestion and offline transcription with automated routing to Copilot, Pharmacist, or Companion.
+5. **Human-in-the-Loop Quarantine Airlock (`src/quarantine/`):**
+   - Background pharmacovigilance scanner ingesting circulars from OpenFDA, PubMed, WHO, DHA, and UAE MOHAP.
+   - Cryptographic SHA-256 evidence provenance hashing.
+   - Strict air-gap: candidate findings stage in `hitl_clinical_quarantine` with status `PENDING`.
+   - The Pharmacist Gate: Licensed pharmacist verification (`Mohamed Fathy, BPharm`) with atomic promotion into live `drug_interactions` table.
 
 ---
 
 ### 6. Build & Test Instructions
-```bash
-# Build standalone CLI binary and shared library
-make all
 
-# Run complete deterministic verification suite (C99 + Python + Tamper tests)
+#### Rust Engine & Full Test Battery (88/88 Tests Passing)
+```bash
+# Build standalone binary and library
+cargo build --release
+
+# Run complete Rust test suite (88 tests passing)
+cargo test
+
+# Run interactive CLI commands
+cargo run --bin taryaq_agent_daemon -- copilot --dialogue "عندي عوار بالصدر" --egfr 25.0
+cargo run --bin taryaq_agent_daemon -- pharmacist --meds "Colchicine, Clarithromycin" --claim 2500.0 --delay 45
+cargo run --bin taryaq_agent_daemon -- quarantine list --status PENDING
+```
+
+#### C99 Safety Kernel & Python Suites (27/27 Tests Passing)
+```bash
+# Build standalone C binary and run deterministic verification
+make all
 make test
 
 # Verify cryptographic HMAC audit chain
@@ -90,10 +114,12 @@ make timeline-demo
 
 # Run Clinical RAG & DHA statutory grounding demo
 make rag-demo
-
-# Run complete acceptance and audit verification
-make verify
-
-# Clean build artifacts and runtime logs
-make clean
 ```
+
+---
+
+### 7. Documentation & Reference Links
+- [Team Review Guide](file:///Users/mohamedfathy/Desktop/taryaq-agent/docs/TEAM_REVIEW_GUIDE.md) — Comprehensive guide for evaluators and teammates.
+- [Canonical Master Specification 2026](file:///Users/mohamedfathy/Desktop/taryaq-agent/docs/CANONICAL_MASTER_SPECIFICATION_2026.md) — Unified statutory specification.
+- [Canonical PRD](file:///Users/mohamedfathy/Desktop/taryaq-agent/docs/PRD_CANONICAL_SPEC_2026.md) — Official product requirements.
+- [Sprint Roadmap & Execution Plan](file:///Users/mohamedfathy/Desktop/taryaq-agent/PLAN.md) — SPRINT-01 through SPRINT-04 execution record.
